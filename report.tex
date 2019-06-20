@@ -13,9 +13,9 @@
 \addbibresource{literature.bib}
 
 \usepackage[
-   pdfauthor={AUTHOR NAME}, % TODO
-   pdftitle={Seminar Report - PAPER TITLE}, % TODO
-   pdfsubject={PAPER SUBTITLE}, % TODO
+   pdfauthor={Christian Schwarz},
+   pdftitle={Seminar Report - Light Weight Contexts},
+   pdfsubject={An OS Abstraction for Safety and Performance}, 
    pdfkeywords={}
 ]{hyperref}
 
@@ -25,23 +25,25 @@
 \usepackage{blindtext}
 
 \begin{document}
-\title{%a
+\title{%
   % document class article doesn't support subtitles, let's hack them
   {\normalfont \normalsize Seminar Report on}\\%
-  PAPER TITLE \\% % TODO
-  {\normalfont \normalsize PAPER SUBTITLE}\\% % TODO
+  Light Weight Contexts\\%
+  {\normalfont \normalsize An OS Abstraction for Safety and Performance}\\%
   {\normalfont \small %
-    Paper Author\textsuperscript{1}%  % TODO
-    Paper Author\textsuperscript{2}%  % TODO
-    Paper Author\textsuperscript{1}%  % TODO
-    Paper Author\textsuperscript{2}%  % TODO
+    James Litton\textsuperscript{1,2}
+    Anjo Vahldiek-Oberwagner\textsuperscript{2}
+    Eslam Elnikety\textsuperscript{2}
+    Deepak Garg\textsuperscript{2}
+    Bobby Bhattacharjee\textsuperscript{1}
+    Peter Druschel\textsuperscript{2}
   }\\
   {\normalfont \small
-    \textsuperscript{1} Institution 1% % TODO
-    \textsuperscript{2} Institution 2% % TODO
+    \textsuperscript{1}University of Maryland, College Park 
+    \textsuperscript{2}Max Planck Institute for Software Systems
   }%
 }
-\author{Report by Report Author} % TODO
+\author{Report by Christian Schwarz}
 \date{2019}
 
 \maketitle
