@@ -1,0 +1,68 @@
+\documentclass[10pt,twocolumn,letter]{article}
+\usepackage{styles/usenix-style}
+\usepackage{styles/ka-style}
+\usepackage{xspace,ifthen,graphicx,listings}
+\usepackage{styles/ka-style}
+
+\usepackage[utf8]{inputenc}
+\usepackage[inline]{enumitem}
+\usepackage{parskip} % disable indentation for new paragraphs, increased margin-bottom instead
+\usepackage[english]{babel}
+\usepackage{csquotes}
+\usepackage[style=alphabetic]{biblatex}
+\addbibresource{literature.bib}
+
+\usepackage[
+   pdfauthor={AUTHOR NAME}, % TODO
+   pdftitle={Seminar Report - PAPER TITLE}, % TODO
+   pdfsubject={PAPER SUBTITLE}, % TODO
+   pdfkeywords={}
+]{hyperref}
+
+\setlength{\marginparwidth}{2cm} % to make todonotes fit in twocolumn
+\usepackage{todonotes}
+
+\usepackage{blindtext}
+
+\begin{document}
+\title{%a
+  % document class article doesn't support subtitles, let's hack them
+  {\normalfont \normalsize Seminar Report on}\\%
+  PAPER TITLE \\% % TODO
+  {\normalfont \normalsize PAPER SUBTITLE}\\% % TODO
+  {\normalfont \small %
+    Paper Author\textsuperscript{1}%  % TODO
+    Paper Author\textsuperscript{2}%  % TODO
+    Paper Author\textsuperscript{1}%  % TODO
+    Paper Author\textsuperscript{2}%  % TODO
+  }\\
+  {\normalfont \small
+    \textsuperscript{1} Institution 1% % TODO
+    \textsuperscript{2} Institution 2% % TODO
+  }%
+}
+\author{Report by Report Author} % TODO
+\date{2019}
+
+\maketitle
+
+\begin{abstract}
+  \blindtext
+\end{abstract}
+
+\section{Introduction}
+\blindtext
+
+\subsection{Structure of this Report}
+
+\section{Motivation}\label{motivation}
+\section{Design}\label{design}
+\section{Implementation \& Evaluation}\label{eval}
+\section{Conclusion}\label{conclusion}
+
+% Cite all the literature, not just the one we referenced in the text.
+\nocite{*}
+\clearpage
+\printbibliography
+
+\end{document}
