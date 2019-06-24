@@ -52,14 +52,114 @@
   \blindtext
 \end{abstract}
 
-\section{Introduction}
-\blindtext
+\section{Introduction}\label{intro}
+
+Application Compartmentalization as in seminar presentation. Ignore Session Isolation \& Snapshots?
+
+Line of throught:
+
+Modern app architecture commonly emphasizes modularization \& information hiding (Parnas) to achieve testability, maintainability, exchangability, reusability.
+The extreme of reusability are large libraries used by multiple independent applications.
+
+However, chasm between development time and runtime:
+PLs enforce encapsulation at compile time, but the resulting program runs in a single protection domain, i.e. a process, at runtime:
+shared address space with shared heap, shared file descriptor table, shared system-level privilege (user id, group id, capabilities(SYS\_CAP\_), system call) between all modules of the program.
+Consequently, an exploitable vulnerability in a single module not only compromises that module but the entire application.
+
+The generic solution: decomponsition of the application into smaller units that execute in separate protection domains.
+Generic questions / problems / tradeoffs:
+\begin{itemize}
+  \item threat model
+  \item definition of what makes a protection domain
+  \item how to integrate the decomposition into different protection domains into the PL / runtime?
+  \item applicability to existing PLs \& code bases
+  \item how to maintain application performance
+\end{itemize}
 
 \subsection{Structure of this Report}
+\blindtext
 
-\section{Motivation}\label{motivation}
+
 \section{Design}\label{design}
+We find it most helpful to develop the general idea behind lwCs by starting from the status quo of the well-established abstraction of processes \& threads.
+Conventionally, processes define an execution environment which is shared by one or more threads.
+The execution environment consists of an address space, a file descriptor table and a representation of the process's system-wide privileges (\textit{credential}).
+A thread assumes \textbf{two closely related roles}:
+\textbf{first}, it represents a \textbf{single unit of control flow} within that environment.
+Control flow has associated state like instruction pointer, stack pointer, general purpose register contents, FPU state, \dots.
+That state resides in a CPU's registers while the thread is executing on a CPU, or in the thread control block (TCB) kernel data structure.
+The \textbf{second} role of a thread is that of a \textbf{scheduling entity}:
+The scheduler time-multiplexes threads onto CPU cores and implements the concept of blocking \& waiting between threads.
+Parts of the necessary state for this task are tracked in the thread control block (TCB).
+The canonical relationship between processes and threads as described above is visualized in figure XXXTODOXXX.
+
+The authors propose \textit{light weight contexts} (lwCs) as a new OS abstraction that represents protection domain \& control flows within that protection domain.
+
+Each thread within a process executes within a single lwC at a given time.
+Multiple threads can execute simultaneously within an lwCs.
+lwCs are represented by file descriptors and thus tangible from user-space.
+Threads can switch protection domains by switching between lwCs.
+
+
+
+\subsection{Usage Examples}\label{usage}
+\subsection{Design Critique}\label{dsgn:crit}
+
+\begin{description}
+  \item[+] foo
+  \item[--] bar
+\end{description}
+
+\section{Threat Model}\label{threat}
+
 \section{Implementation \& Evaluation}\label{eval}
+
+\subsection{Evaluation Critique}\label{eval:crit}
+
+\section{Related Work}\label{rel}
+
+\begin{itemize}
+  \item Application Compartmentalization
+  \begin{itemize}
+    \item Principle of least Privilege
+    
+    \item Language-Technology-Based
+    \begin{itemize}
+      \item NaCL \& WASM
+      \item BPF \& eBPF
+      \item Software Fault Isolation
+      \item Memory-safe Runtime (Java, CLR?) %working title, need proper PL word for it
+    \end{itemize}
+    
+    \item OS-Based
+      \begin{itemize}
+        \item Capability Systems
+        \begin{itemize}
+          \item Fiasco-OC / seL4
+          \item FreeBSD Capsicum
+        \end{itemize}
+        \item Process-Based Privsep
+        \begin{itemize}
+          \item Provos, OpenSSH
+        \end{itemize}
+        \item Hybrids (isolation at some level)
+        \begin{itemize}
+          \item wedge
+          \item shreds (uses ARM memory domains)
+          \item \textbf{light weight contexts}
+        \end{itemize}
+      \end{itemize}
+
+    \item Hardware-Based
+    \begin{itemize}
+      \item CHERI
+    \end{itemize}
+  \end{itemize}
+  
+  \item Process Snapshotting \& Rollback
+  \item Session Isolation in CGI applications?
+\end{itemize}
+
 \section{Conclusion}\label{conclusion}
 
 % Cite all the literature, not just the one we referenced in the text.
