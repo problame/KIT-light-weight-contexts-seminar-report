@@ -23,6 +23,7 @@
 \usepackage{todonotes}
 
 \usepackage{blindtext}
+\usepackage{listings}
 
 \begin{document}
 \title{%
@@ -81,36 +82,87 @@ Generic questions / problems / tradeoffs:
 
 
 \section{Design}\label{design}
-We find it most helpful to develop the general idea behind lwCs by starting from the status quo of the well-established abstraction of processes \& threads.
+We find it most helpful to develop the general idea of \textit{light weight Contexts} (lwCs) by starting from the canonical abstraction of processes \& threads, as visualized in figure~\ref{design:fig:canonicalprocthreads}.
+\begin{figure}
+  \label{design:fig:canonicalprocthreads}
+  \includegraphics[width=\linewidth]{fig/canonical-proc-thread-relationship}
+  \caption{
+    Canonical state associated with processes and threads and the relationship between them.
+    The process implicitly defines the execution environment for threads.
+    Threads are scheduling entities that represent a single control flow bound to the process-defined environment.
+  }
+\end{figure}
 Conventionally, processes define an execution environment which is shared by one or more threads.
 The execution environment consists of an address space, a file descriptor table and a representation of the process's system-wide privileges (\textit{credential}).
-A thread assumes \textbf{two closely related roles}:
-\textbf{first}, it represents a \textbf{single unit of control flow} within that environment.
-Control flow has associated state like instruction pointer, stack pointer, general purpose register contents, FPU state, \dots.
+A thread has \textbf{two closely related, but separate roles}:
+\textbf{first}, it represents a \textbf{single unit of logical control flow} within the process-defined environment.
+Control flow has associated state, e.g., instruction pointer, stack pointer, general purpose register contents, FPU state, etc.
 That state resides in a CPU's registers while the thread is executing on a CPU, or in the thread control block (TCB) kernel data structure.
 The \textbf{second} role of a thread is that of a \textbf{scheduling entity}:
 The scheduler time-multiplexes threads onto CPU cores and implements the concept of blocking \& waiting between threads.
-Parts of the necessary state for this task are tracked in the thread control block (TCB).
-The canonical relationship between processes and threads as described above is visualized in figure XXXTODOXXX.
+The scheduler state required for this task is stored in the thread control block (TCB).
 
-The authors propose \textit{light weight contexts} (lwCs) as a new OS abstraction that represents protection domain \& control flows within that protection domain.
+The authors introduce \textit{light weight contexts} (lwCs) as a new OS abstraction and restructure the roles of canonical processes \& threads, as visualized in figure~\ref{design:fig:lwcprocthreadrelationship}:
 
-Each thread within a process executes within a single lwC at a given time.
-Multiple threads can execute simultaneously within an lwCs.
-lwCs are represented by file descriptors and thus tangible from user-space.
-Threads can switch protection domains by switching between lwCs.
+\begin{figure}[h]
+  \label{design:fig:lwcprocthreadrelationship}
+  \includegraphics[width=\linewidth]{fig/lwc-proc-thread-relationship}
+  \caption{
+    State associated with lwCs, processes and threads and relationships between them.
+    Processes act as containers for threads and lwCs.
+    Threads are reduced to their role as scheduling entities.
+    Each lwC represents an execution environment and holds control flow state for each thread.
+  }
+\end{figure}
+
+\begin{itemize}
+\item An lwC represents a single protection domain (address space, file descriptor table and system credential) and logical control flows within that protection domain.
+\item Each thread that can enter an lwC has aexecutes the At thread is always associated with exaclty one lwC at any given time.
+\item Within an lwC, a thread executes a logical control flow 
+\item Multiple threads can execute simultaneously within an lwCs, sharing a protection domain but executing different logical flows.
+\item lwCs are represented as file descriptors, and thus explicitly tangible by user space.
+\item Threads can switch protection domains and logical control flow by switching between lwCs.
+\end{itemize}
+
+In the following subsections, we provide an outline of the system API for managing and using lwCs in an application.
+Subsequently, we summarize the security guarantees provided by lwCs and provide usage examples for this new OS abstraction. 
+
+\subsection{lwC Switching}\label{design:switching}
+Threads can switch between lwCs using the \lstinline{lwcSwitch} system call:
+
+\begin{lstlisting}[float=h]
+  caller, carg := lwcSwitch(target, arg) 
+\end{lstlisting}
+
+The first argument \lstinline{target} specifies the file descriptor of the lwC into which the calling thread wants to switch%
+\footnote{We will come back to lwC creation in the next subsection, and accept the existence of multiple lwCs for now.}
+
+When invoking the system call, the kernel performs the following actions:
+
+The second argument \lstinline{arg} is an opaque value that is made available to  made available 
+\begin{enumerate}
+  \item Save the current state into 
+\end{enumerate}
+
+The second argument \lstinline{arg} is an opaque value which is made available on the 
 
 
+Switching to a new lwC yields control flow 
+resume logical control flow a thread to switch and resume between protection domains and logical control flows using the \lstinline{lwcSwitch} system call.
 
-\subsection{Usage Examples}\label{usage}
-\subsection{Design Critique}\label{dsgn:crit}
 
-\begin{description}
-  \item[+] foo
-  \item[--] bar
-\end{description}
+\subsection{lwC Creation \& Destruction}\label{design:createdestroy}
 
-\section{Threat Model}\label{threat}
+\subsubsection{lwC Resource Specifiers}\label{design:rspecs}
+\subsubsection{Static Resource Sharing}
+
+\subsection{Dynamic Resource Sharing with lwC Overlays}\label{design:overlays}
+
+\subsection{Syscall Interposition}\label{design:syscallinterpos}
+
+\subsection{Threat Model \& Security Guarantees}\label{design:threat}
+
+\subsection{Usage Examples}\label{design:usage}
 
 \section{Implementation \& Evaluation}\label{eval}
 
