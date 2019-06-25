@@ -14,7 +14,7 @@
 
 \usepackage[
    pdfauthor={Christian Schwarz},
-   pdftitle={Seminar Report - Light Weight Contexts},
+   pdftitle={Seminar Report - Light-Weight Contexts},
    pdfsubject={An OS Abstraction for Safety and Performance}, 
    pdfkeywords={}
 ]{hyperref}
@@ -23,13 +23,16 @@
 \usepackage{todonotes}
 
 \usepackage{blindtext}
+
 \usepackage{listings}
+\lstdefinestyle{lwcapi}{language=[ANSI]C,basicstyle=\ttfamily,basewidth=0.5em,fontadjust=true}
+\lstset{style=lwcapi}
 
 \begin{document}
 \title{%
   % document class article doesn't support subtitles, let's hack them
   {\normalfont \normalsize Seminar Report on}\\%
-  Light Weight Contexts\\%
+  Light-weight Contexts\\%
   {\normalfont \normalsize An OS Abstraction for Safety and Performance}\\%
   {\normalfont \small %
     James Litton\textsuperscript{1,2}
@@ -82,7 +85,7 @@ Generic questions / problems / tradeoffs:
 
 
 \section{Design}\label{design}
-We find it most helpful to develop the general idea of \textit{light weight Contexts} (lwCs) by starting from the canonical abstraction of processes \& threads, as visualized in figure~\ref{design:fig:canonicalprocthreads}.
+We find it most helpful to develop the general idea of \textit{light-weight Contexts} (lwCs) by starting from the canonical abstraction of processes \& threads, as visualized in figure~\ref{design:fig:canonicalprocthreads}.
 \begin{figure}
   \label{design:fig:canonicalprocthreads}
   \includegraphics[width=\linewidth]{fig/canonical-proc-thread-relationship}
@@ -102,7 +105,7 @@ The \textbf{second} role of a thread is that of a \textbf{scheduling entity}:
 The scheduler time-multiplexes threads onto CPU cores and implements the concept of blocking \& waiting between threads.
 The scheduler state required for this task is stored in the thread control block (TCB).
 
-The authors introduce \textit{light weight contexts} (lwCs) as a new OS abstraction and restructure the roles of canonical processes \& threads, as visualized in figure~\ref{design:fig:lwcprocthreadrelationship}:
+The authors introduce light-weight contexts as a new OS abstraction and restructure the roles of canonical processes \& threads, as visualized in figure~\ref{design:fig:lwcprocthreadrelationship}:
 
 \begin{figure}[h]
   \label{design:fig:lwcprocthreadrelationship}
@@ -128,28 +131,50 @@ In the following subsections, we provide an outline of the system API for managi
 Subsequently, we summarize the security guarantees provided by lwCs and provide usage examples for this new OS abstraction. 
 
 \subsection{lwC Switching}\label{design:switching}
-Threads can switch between lwCs using the \lstinline{lwcSwitch} system call:
+We start our survey of the lwC API surface with the most central functionality: switching between lwCs.
+We accept the existence of multiple lwCs for now and come back to lwC creation in the next subsection.
+
+Threads can switch between lwCs by invoking the \lstinline{lwcSwitch} system call:
 
 \begin{lstlisting}[float=h]
   caller, carg := lwcSwitch(target, arg) 
 \end{lstlisting}
 
-The first argument \lstinline{target} specifies the file descriptor of the lwC into which the calling thread wants to switch%
-\footnote{We will come back to lwC creation in the next subsection, and accept the existence of multiple lwCs for now.}
-
-When invoking the system call, the kernel performs the following actions:
-
-The second argument \lstinline{arg} is an opaque value that is made available to  made available 
-\begin{enumerate}
-  \item Save the current state into 
+The first argument \lstinline{target} specifies the file descriptor of the lwC into which the calling thread wants to switch.
+When invoking the system call, the kernel
+\begin{enumerate}[label=(\alph*)]
+\item saves the current control flow state into the current thread's lwC,
+\item atomically switches to the new protection domain by installing the target lwC address space, file descritptor table and credential for the current thread,
+\item and restores the control flow state saved for the current in thread in the target lwC.
 \end{enumerate}
+Pseudocode for this procedure is provided in listing~\ref{design:fig:switchpseudocode}.
 
-The second argument \lstinline{arg} is an opaque value which is made available on the 
+\begin{lstlisting}[mathescape,label=design:fig:switchpseudocode,caption=Pseudo code for lwcSwitch.,frame=trbl]
+  syscall
+  
+  SP, IP, $\dots$ $\rightarrow$ curLWC->tcb[tid]
+  
+  curThd->vmspace = targetLWC->vmspace
+  curThd->fdt = targetLWC->fdt
+  curThd->cred = targetLWC->cred
+  curLWC = targetLWC
+  
+  SP, IP, $\dots$ $\leftarrow$ targetLWC->tcb[tid]
+  (arg kept in register)
+  
+  sysret  
+\end{lstlisting}
+  
+It is crucial to understand that \textbf{execution after a switch always resumes at an lwC call site}, except for the very first switch into a newly created lwC (see section~\ref{design:createdestroy}).
+Note that this behavior is analogous to a voluntary context switch, e.g., with \lstinline{pthread_yield}.
+However, in contrast to the canonical model, \textbf{\lstinline{lwcSwitch} does not switch to another scheduling entity}, because the thread on the CPU is the same as after the switch.
+In fact, \textbf{the thread scheduler is not affected by lwC switching}:
+it continues to handle context switches post-interrupt, post-exception or when a thread blocks, by saving that thread's control flow state to the slot in the current lwC before switching to another thread (=~scheduling entity).
+When the original thread is dispatched again, it can only resume execution where it was preempted or blocked, because it could not invoke switch lwCs while it was not running.
 
-
-Switching to a new lwC yields control flow 
-resume logical control flow a thread to switch and resume between protection domains and logical control flows using the \lstinline{lwcSwitch} system call.
-
+The second argument to \lstinline{lwcSwitch} is an opaque value called \lstinline{arg} that is passed through to the code that starts executing in the target lwC after the switch is completed.
+\lstinline{arg} is made available in the target lwC as the return value \lstinline{carg}, which works because execution always resumes at an lwC call site (see above).
+Additionally, the file descriptor of the lwC from where we switched to the now-running lwC is made available in \lstinline{caller}, which is useful for subroutine-style usage of \lstinline{lwcSwitch} where a single piece of code can have different callers at runtime.
 
 \subsection{lwC Creation \& Destruction}\label{design:createdestroy}
 
@@ -164,9 +189,11 @@ resume logical control flow a thread to switch and resume between protection dom
 
 \subsection{Usage Examples}\label{design:usage}
 
+\subsection{Limitations}
+
 \section{Implementation \& Evaluation}\label{eval}
 
-\subsection{Evaluation Critique}\label{eval:crit}
+\subsection{Critique}\label{eval:crit}
 
 \section{Related Work}\label{rel}
 
