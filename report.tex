@@ -28,6 +28,9 @@
 \lstdefinestyle{lwcapi}{language=[ANSI]C,basicstyle=\ttfamily,basewidth=0.5em,fontadjust=true}
 \lstset{style=lwcapi}
 
+\usepackage{diagbox}
+\usepackage{multirow}
+
 \begin{document}
 \title{%
   % document class article doesn't support subtitles, let's hack them
@@ -53,7 +56,7 @@
 \maketitle
 
 \begin{abstract}
-  \blindtext
+  \blindtext\todo{fix blindtext}
 \end{abstract}
 
 \section{Introduction}\label{intro}
@@ -81,7 +84,7 @@ Generic questions / problems / tradeoffs:
 \end{itemize}
 
 \subsection{Structure of this Report}
-\blindtext
+\blindtext\todo{fix blindtext}
 
 
 \section{Design}\label{design}
@@ -184,24 +187,34 @@ This design enables backwards binary-compatiblity with the exception that the ro
 
 New lwCs can then be created by threads using the \lstinline{lwcCreate} system call:
 
+\begin{figure}[h]
+  \centering
 \begin{lstlisting}[mathescape]
-  rspecs :=
-    [{Resource,[A, B), COPY|UNMAP|SHARE}, ...]
   new, caller, carg := lwcCreate(rspecs)
-  /*              new      caller      carg
-   *  creator   new lwC       0          0
-   *  new lwC      0         like lwcSwitch
-   */
 \end{lstlisting}
+\begin{tabular}{|r||c|c|c|}
+  \hline
+                &   new        & caller       & carg \\
+  \hline\hline
+  creator       & new lwC fd   & $\bot$      & $\bot$\\
+  \hline
+  new lwC       &    $\bot$    & \multicolumn{2}{c|}{like lwcSwitch}\\
+  \hline
+\end{tabular}
+\caption{
+  \texttt{lwcCreate} return values are different in creator and new lwC to ensure well-defined behavior when the creator switches to the new lwC for the first time.
+}
+\end{figure}
 
 By default, a new lwC is a snapshot of the calling thread's current lwC, as depicted in figure~\ref{design:fig:lwccreationsequencediagram}:
-The kernel first creates copies of the resources \textit{address space, file descriptor table} and stores them in the new lwC.
+The kernel first creates copies of the resources \textit{address space}, \textit{file descriptor table} and \textit{credentials} and stores them in the new lwC.
 It then temporarily preempts all threads that execute in the current lwC and stores their control flow state in the new lwC.
 The execution state of other threads that can switch to the creating lwCs is simply copied to the new lwC.
 Finally, the file descriptor referring to the new lwC is returned to user space in the return value \lstinline{new}.
 
 \begin{figure}
-  \includegraphics[width=\linewidth]{fig/lwc-creation-sequence-diagram}
+  \centering
+  \includegraphics[height=4cm]{fig/lwc-creation-sequence-diagram}
   \caption{
     Steps involved in lwC creation.
     By default, a new lwC is a copy (snapshot) of the current lwC's resources.
@@ -212,21 +225,53 @@ Finally, the file descriptor referring to the new lwC is returned to user space 
 
 Note that in contrast to the original paper, we avoid the term \textit{fork} when describing the lwC creation procedure:
 forking has the same resource snapshotting semantics as \textit{lwcCreate}, but also implies the creation of a new process and scheduling entity.
-In contrast, \textit{lwcCreate} only creates a copy of the protection domain and a handle for existing threads to switch to it.
+In contrast, \textit{lwcCreate} only creates a copy of the protection domain and a handle for existing threads to switch to it later --- no independent scheduling entity is created.
 
-However, there is still overlap with fork semantics and the problems associated with this artifact of early UNIX history: % TODO ref microsoft paper
-\textbf{what happens when we first switch into a newly created lwC?}
+However, one problem of forking translates to lwC creation:
+\textbf{what happens when we first switch into a newly created lwC? How does snapshotting interact with multi-threading?}
 After all, we preempt and snapshot all threads' control flow states on lwC creation, and the \lstinline{lwcSwitch} implementation restores that state on first switch, expecting that it was an \lstinline{lwcSwitch} call site.
-The \lstinline{lwcCreate}ing thread will appear return "a second time" from that syscall.
-The \lstinline{lwcSwitch} return values can thus be made available in \lstinline{lwcCreate}'s \lstinline{caller} and \lstinline{carg} variables.
-Other threads could be at random points in the logical control flow they were executing, resulting in undefined behavior after the switch.\todo{obvious?}
-Multithreaded forking is a well-known problem, \todo{citations} and the authors recommend applications to use barrier-synchronization with the creator.\todo{cite}
+We need to consider two cases:
+the \lstinline{lwcCreate}ing thread will appear return "a second time" from that syscall and populate \lstinline{lwcCreate}'s \lstinline{caller} and \lstinline{carg} return values with those of \lstinline{lwcSwitch}.
+The behavior in the creating thread is thus well-defined.
+Other threads could be at random points in their logical control flow when being snapshotted, resulting in undefined behavior after the switch.\todo{obvious?}
+Multithreaded forking is a well-known problem, \todo{citation} and the authors recommend applications to use barrier-synchronization with the creator.\todo{cite}
 However, it is unclear to us how the \lstinline{caller} and \lstinline{carg} return values are accessible without inline-assembly or language support for non-creator threads.\todo{check}
 
 \subsubsection{lwC Resource Specifiers}\label{design:rspecs}
+The previous section presented the default behavior of \lstinline{lwcCreate} for an empty \lstinline{rspecs} argument, which amounts to the new lwC being a snapshot copy of the current lwC's \textbf{resources} \textit{address space}, \textit{file descriptor table} and \textit{credential}.
+By using \textit{resource specifiers}, the application can control resource sharing at a more fine-grained level:
+resources of the current lwC can be either \textit{copied to}, \textit{unmapped from} or \textit{shared} with the new lwCs.
+For address space and file descriptors, different sharing behavior can be specified on a per-page or per-descriptor basis.
+Figure~\ref{design:fig:rspectable} summarizes the different combinations of resources and sharing behavior.
+
+\begin{figure}[h]
+  \centering
+\begin{lstlisting}
+rspecs := [{Resource , [Start, End), How}]
+\end{lstlisting}
+
+\begin{tabular}{|r||m{1.5cm}|m{1.5cm}|m{1.5cm}|}
+  \hline
+  \diagbox[width=5em]{How}{What}    &     Address Space         &         File Descriptor Table         &           Credential           \\
+  \hline
+  COPY                              &   copy on write sharing           &      \texttt{dup} open FDs once    &  copy credential kobject  \\
+  \hline              
+  UNMAP                             &   do not map              &       do not \texttt{dup} FDs         &    $\bot$       \\
+  \hline              
+  SHARE                             &   shared memory            &   share kobject   &             share kobject   \\
+  \hline
+\end{tabular}
+\caption{
+  Resource specifiers change the default snapshot semantics of \texttt{lwcCreate}:
+  each resource can be copied, shared or unmapped from the new lwC.
+  Address space and file descriptor sharing can be configured per page / per descriptor.
+  \textit{copy} sharing is roughly equivalent to what happens on \texttt{fork}, \textit{share} to what happens on thread creation.
+  }
+\label{design:fig:rspectable}
+\end{figure}
+\todo{language, prettier table}
 
 % TODO What about SysV IPC, other shared namespaces? => systrap mechanism?
-The only argument to \lstinline{lwcCreate} is \lstinline{rspecs}  
 
 \subsubsection{Static Resource Sharing}
 
