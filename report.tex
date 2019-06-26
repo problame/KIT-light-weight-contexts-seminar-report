@@ -119,11 +119,10 @@ The authors introduce light-weight contexts as a new OS abstraction and restruct
 \end{figure}
 
 \begin{itemize}
-\item An lwC represents a single protection domain (address space, file descriptor table and system credential) and logical control flows within that protection domain.
-\item Each thread that can enter an lwC has aexecutes the At thread is always associated with exaclty one lwC at any given time.
-\item Within an lwC, a thread executes a logical control flow 
+\item An lwC represents a single protection domain (address space, file descriptor table and system credential) and all logical control flows within that protection domain.
+\item Threads always execute within one lwC at any given time and always execute the same logical control flow while within that lwC.
 \item Multiple threads can execute simultaneously within an lwCs, sharing a protection domain but executing different logical flows.
-\item lwCs are represented as file descriptors, and thus explicitly tangible by user space.
+\item lwCs are represented as file descriptors, and thus explicitly tangible from user space.
 \item Threads can switch protection domains and logical control flow by switching between lwCs.
 \end{itemize}
 
@@ -144,10 +143,10 @@ The first argument \lstinline{target} specifies the file descriptor of the lwC i
 When invoking the system call, the kernel
 \begin{enumerate}[label=(\alph*)]
 \item saves the current control flow state into the current thread's lwC,
-\item atomically switches to the new protection domain by installing the target lwC address space, file descritptor table and credential for the current thread,
+\item atomically switches to the new protection domain by installing the target lwC address space, file descriptor table and credential for the current thread,
 \item and restores the control flow state saved for the current in thread in the target lwC.
 \end{enumerate}
-Pseudocode for this procedure is provided in listing~\ref{design:fig:switchpseudocode}.
+Pseudo code for this procedure is provided in listing~\ref{design:fig:switchpseudocode}.
 
 \begin{lstlisting}[mathescape,label=design:fig:switchpseudocode,caption=Pseudo code for lwcSwitch.,frame=trbl]
   syscall
@@ -167,14 +166,17 @@ Pseudocode for this procedure is provided in listing~\ref{design:fig:switchpseud
   
 It is crucial to understand that \textbf{execution after a switch always resumes at an lwC call site}, except for the very first switch into a newly created lwC (see section~\ref{design:createdestroy}).
 Note that this behavior is analogous to a voluntary context switch, e.g., with \lstinline{pthread_yield}.
-However, in contrast to the canonical model, \textbf{\lstinline{lwcSwitch} does not switch to another scheduling entity}, because the thread on the CPU is the same as after the switch.
-In fact, \textbf{the thread scheduler is not affected by lwC switching}:
-it continues to handle context switches post-interrupt, post-exception or when a thread blocks, by saving that thread's control flow state to the slot in the current lwC before switching to another thread (=~scheduling entity).
-When the original thread is dispatched again, it can only resume execution where it was preempted or blocked, because it could not invoke switch lwCs while it was not running.
+However, in contrast to the canonical model of processes \& threads, \textbf{\lstinline{lwcSwitch} does not switch to another scheduling entity}:
+from the thread scheduler's perspective, it is still the same thread that is executing on the CPU.
+In fact, \textbf{the thread scheduler is not affected at all by lwC switching}:
+it still handles context switches post-interrupt, post-exception or when a thread blocks, by simply saving that thread's control flow state to the slot in the current lwC before switching to another thread (i.e.~scheduling entity).
 
 The second argument to \lstinline{lwcSwitch} is an opaque value called \lstinline{arg} that is passed through to the code that starts executing in the target lwC after the switch is completed.
-\lstinline{arg} is made available in the target lwC as the return value \lstinline{carg}, which works because execution always resumes at an lwC call site (see above).
-Additionally, the file descriptor of the lwC from where we switched to the now-running lwC is made available in \lstinline{caller}, which is useful for subroutine-style usage of \lstinline{lwcSwitch} where a single piece of code can have different callers at runtime.
+\lstinline{arg} is made available in the target lwC as the return value \lstinline{carg} (we remember that execution always resumes at an lwC call site).
+The second return value \lstinline{caller} is the file descriptor of the lwC from where the switch was initiated.
+Having this information available in the switch target enables subroutine-style usage of \lstinline{lwcSwitch} because it enables switching back to any number of callers that are unknown at compile time.
+
+% do not mention coroutines here, will do that in the application
 
 \subsection{lwC Creation \& Destruction}\label{design:createdestroy}
 
