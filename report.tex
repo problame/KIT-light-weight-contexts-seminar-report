@@ -179,8 +179,55 @@ Having this information available in the switch target enables subroutine-style 
 % do not mention coroutines here, will do that in the application
 
 \subsection{lwC Creation \& Destruction}\label{design:createdestroy}
+A process in an lwC system starts with a single thread that runs within a root lwC created by the OS.
+This design enables backwards binary-compatiblity with the exception that the root lwC file descriptor is a well-known number analogous to those for stdio.
+
+New lwCs can then be created by threads using the \lstinline{lwcCreate} system call:
+
+\begin{lstlisting}[mathescape]
+  rspecs :=
+    [{Resource,[A, B), COPY|UNMAP|SHARE}, ...]
+  new, caller, carg := lwcCreate(rspecs)
+  /*              new      caller      carg
+   *  creator   new lwC       0          0
+   *  new lwC      0         like lwcSwitch
+   */
+\end{lstlisting}
+
+By default, a new lwC is a snapshot of the calling thread's current lwC, as depicted in figure~\ref{design:fig:lwccreationsequencediagram}:
+The kernel first creates copies of the resources \textit{address space, file descriptor table} and stores them in the new lwC.
+It then temporarily preempts all threads that execute in the current lwC and stores their control flow state in the new lwC.
+The execution state of other threads that can switch to the creating lwCs is simply copied to the new lwC.
+Finally, the file descriptor referring to the new lwC is returned to user space in the return value \lstinline{new}.
+
+\begin{figure}
+  \includegraphics[width=\linewidth]{fig/lwc-creation-sequence-diagram}
+  \caption{
+    Steps involved in lwC creation.
+    By default, a new lwC is a copy (snapshot) of the current lwC's resources.
+    All threads that exist at the time of lwC creation can enter the new lwC.
+  }
+\label{design:fig:lwccreationsequencediagram}
+\end{figure}
+
+Note that in contrast to the original paper, we avoid the term \textit{fork} when describing the lwC creation procedure:
+forking has the same resource snapshotting semantics as \textit{lwcCreate}, but also implies the creation of a new process and scheduling entity.
+In contrast, \textit{lwcCreate} only creates a copy of the protection domain and a handle for existing threads to switch to it.
+
+However, there is still overlap with fork semantics and the problems associated with this artifact of early UNIX history: % TODO ref microsoft paper
+\textbf{what happens when we first switch into a newly created lwC?}
+After all, we preempt and snapshot all threads' control flow states on lwC creation, and the \lstinline{lwcSwitch} implementation restores that state on first switch, expecting that it was an \lstinline{lwcSwitch} call site.
+The \lstinline{lwcCreate}ing thread will appear return "a second time" from that syscall.
+The \lstinline{lwcSwitch} return values can thus be made available in \lstinline{lwcCreate}'s \lstinline{caller} and \lstinline{carg} variables.
+Other threads could be at random points in the logical control flow they were executing, resulting in undefined behavior after the switch.\todo{obvious?}
+Multithreaded forking is a well-known problem, \todo{citations} and the authors recommend applications to use barrier-synchronization with the creator.\todo{cite}
+However, it is unclear to us how the \lstinline{caller} and \lstinline{carg} return values are accessible without inline-assembly or language support for non-creator threads.\todo{check}
 
 \subsubsection{lwC Resource Specifiers}\label{design:rspecs}
+
+% TODO What about SysV IPC, other shared namespaces? => systrap mechanism?
+The only argument to \lstinline{lwcCreate} is \lstinline{rspecs}  
+
 \subsubsection{Static Resource Sharing}
 
 \subsection{Dynamic Resource Sharing with lwC Overlays}\label{design:overlays}
