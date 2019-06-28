@@ -297,7 +297,49 @@ the overlay permission check and \lstinline{lwcRestrict} encode the current acce
 
 Note that revocation of existing overlays is not possible, i.e., \lstinline{lwcRestrict} only affects future mappings.\todo{proof, not mentioned in paper / impl. see microkernel discussions}
 
-\subsection{Syscall Interposition}\label{design:syscallinterpos}
+\subsection{Syscall Interposition in Capability Mode}\label{design:syscallinterpos}
+% kernel: lwctrapto in sys/kern/subr_syscall.c basically just calls lwcswitch 
+When compartmentalizing an application into different lwCs, it can be desirable to limit the system calls an lwC may perform, e.g., to limit filesystem access to a subdirectory or prohibit any network communication.
+The lwC design builds onto existing syscall filtering and mechanisms, e.g. Capsicum capability mode on FreeBSD or seccomp on Linux\todo{cite}:
+when an lwC is created with the \lstinline{LWC_TRAP_SYSCALL} flag, system calls made by the new lwC or any of its children that would normally trap due to the syscall filtering mechanism are redirected to the creator as an \lstinline{lwcSwitch} with \lstinline{caller} set to the trapping lwC.
+After the trap-handling lwC has evaluated its policy, the \lstinline{lwcSyscall} system call provides the mechanism for the trap-handling lwC to execute any system call (the original one, another one) \textbf{in the context of the trapping lwC}:
+
+\begin{lstlisting}[float=h]
+  lwcSyscall(trappingLwc, mask,
+             syscall, syscall-args)
+\end{lstlisting}
+
+An alternative design could have the trap-handling lwC invoke the allowed syscalls itself and return the result as the opaque argument in an \lstinline{lwcSwitch} to the trapping lwC.
+However, if the syscall arguments contain pointers to user memory or file descriptors, the trap-handling lwC would need to overlay those from the trapping lwC.
+\lstinline{lwcSyscall} avoids the overhead of the overlay syscalls that would be required in that alternative design:
+the \lstinline{mask} argument allows the trap-handling lwC to choose per resource type\footnote{granularity: all memory, all file descriptors, the credential} whether its own mapping or that of the trapping lwC should be used while the syscall is executed.
+\lstinline{lwcSyscall} is integrated with the access capability system explained in the previous section:
+the \lstinline{trappingLwc} descriptor must be equipped with access capabilities for the resource types that \lstinline{mask} specifies.
+
+\subsection{Summary}
+
+% TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO 
+\begin{figure}[h] % TODO make this a broad figure?
+\centering
+\begin{tabular}{|r|m{1.5cm}|}
+  \hline
+  lwcCreate & \\
+  \hline
+  lwcClose & \\
+  \hline
+  lwcGetLwc & \\
+  \hline
+  lwcSwitch &  \\
+  \hline
+  lwcOverlay & \\
+  \hline
+  lwcRestrict & \\
+  \hline
+  lwcSyscall & \\
+  \hline
+\end{tabular}
+  \caption{lwc API summary table}
+\end{figure}
 
 
 \subsection{Threat Model \& Security Guarantees}\label{design:threat}
