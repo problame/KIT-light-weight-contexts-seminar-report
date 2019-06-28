@@ -198,7 +198,7 @@ New lwCs can then be created by threads using the \lstinline{lwcCreate} system c
   \hline\hline
   creator       & new lwC fd   & $\bot$      & $\bot$\\
   \hline
-  new lwC       &    $\bot$    & \multicolumn{2}{c|}{like lwcSwitch}\\
+  new lwC       &    creator lwC fd   & \multicolumn{2}{c|}{like lwcSwitch}\\
   \hline
 \end{tabular}
 \caption{
@@ -232,15 +232,19 @@ However, one problem of forking translates to lwC creation:
 After all, we preempt and snapshot all threads' control flow states on lwC creation, and the \lstinline{lwcSwitch} implementation restores that state on first switch, expecting that it was an \lstinline{lwcSwitch} call site.
 We need to consider two cases:
 the \lstinline{lwcCreate}ing thread will appear return "a second time" from that syscall and populate \lstinline{lwcCreate}'s \lstinline{caller} and \lstinline{carg} return values with those of \lstinline{lwcSwitch}.
+Additionally, the \lstinline{new} contains the lwC descriptor of the creator lwC.
 The behavior in the creating thread is thus well-defined.
 Other threads could be at random points in their logical control flow when being snapshotted, resulting in undefined behavior after the switch.\todo{obvious?}
 Multithreaded forking is a well-known problem, \todo{citation} and the authors recommend applications to use barrier-synchronization with the creator.\todo{cite}
 However, it is unclear to us how the \lstinline{caller} and \lstinline{carg} return values are accessible without inline-assembly or language support for non-creator threads.\todo{check}
 
+Finally, it should be noted that a new lwC only stores control flow states for the threads that existed at the time of its creation:
+threads created after the lwC cannot switch into the lwC.
+
 \subsubsection{lwC Resource Specifiers}\label{design:rspecs}
 The previous section presented the default behavior of \lstinline{lwcCreate} for an empty \lstinline{rspecs} argument, which amounts to the new lwC being a snapshot copy of the current lwC's \textbf{resources} \textit{address space}, \textit{file descriptor table} and \textit{credential}.
 By using \textit{resource specifiers}, the application can control resource sharing at a more fine-grained level:
-resources of the current lwC can be either \textit{copied to}, \textit{unmapped from} or \textit{shared} with the new lwCs.
+resources of the current lwC can be either \textit{copied to}, \textit{unmapped from} or \textit{shared} with the new lwC.
 For address space and file descriptors, different sharing behavior can be specified on a per-page or per-descriptor basis.
 Figure~\ref{design:fig:rspectable} summarizes the different combinations of resources and sharing behavior.
 
@@ -271,13 +275,30 @@ rspecs := [{Resource , [Start, End), How}]
 \end{figure}
 \todo{language, prettier table}
 
-% TODO What about SysV IPC, other shared namespaces? => systrap mechanism?
+\subsection{Dynamic Resource Sharing with lwC Overlays \& Access Capabilities}\label{design:overlays}
+Apart from sharing at lwC creation time, it is also possible to dynamically copy or share memory and file descriptors between lwCs or to temporarily escalate system privileges to the credential of another lwC through the \lstinline{lwcOverlay(src, rspecs)} system call.
+The \lstinline{src} argument is the file descriptor of the lwC from which the subset of resources specified in \lstinline{rspecs} should be mapped (\textit{overlaid}) into the current lwC.
+The target address (for memory overlays) or file descriptor number is guaranteed to be the same as in \lstinline{src}.
+To unmap an existing overlay, \lstinline{src} must be set to the current lwC and \lstinline{rspecs} must be filled with \lstinline{UNMAP} resource specifiers. 
+As far as we can tell, overlays do not support stacking: after unmapping an overlay that overlaid an existing memory mapping, that original memory mapping is not automatically re-mapped.  %vmspace_lwc_merge
+Note that in contrast to memory and file descriptors which can be mapped by ranges, credentials can only be mapped whole or nothing\todo{proof is in code, language}. 
 
-\subsubsection{Static Resource Sharing}
+Overlaying resources from an lwC descriptor \lstinline{src} further requires that this descriptor is equipped with \textit{access capabilities} for each requested resource.
+The rules of this access capability system are as follows:
+\begin{itemize}
+  \item After lwC creation, the creator receives the \lstinline{new} lwC descriptor with a universal access capability to the child lwC.
+  \item After lwC creation, the child receives the lwC descriptor of its creator in \lstinline{new}, equipped with access capabilities to ranges flagged appropriately on lwcCreate\todo{mention \lstinline{LWC_MAY_ACCESS}?}.
+  \item Access capabilities cannot be extened.
+  \item Access capabilities can be reduced with the \lstinline{lwcRestrict(lwc, rspecs)} system call: the resource ranges specified in \lstinline{rspecs} can no longer be \lstinline{lwcOverlay}d throuh the \lstinline{lwc} descriptor.
+  \item It is possible to pass lwC descriptors between lwCs --- they are not special with regards to file descriptor overlays.
+\end{itemize}
+In order to grasp the access capability system, we find it helpful to look at the implementation:
+the overlay permission check and \lstinline{lwcRestrict} encode the current access capabilities of a file descriptor as the kernel representation of \lstinline{rspecs} in lwC file descriptor table entry (struct filedescent).
 
-\subsection{Dynamic Resource Sharing with lwC Overlays}\label{design:overlays}
+Note that revocation of existing overlays is not possible, i.e., \lstinline{lwcRestrict} only affects future mappings.\todo{proof, not mentioned in paper / impl. see microkernel discussions}
 
 \subsection{Syscall Interposition}\label{design:syscallinterpos}
+
 
 \subsection{Threat Model \& Security Guarantees}\label{design:threat}
 
