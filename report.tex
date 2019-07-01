@@ -280,26 +280,28 @@ Apart from sharing at lwC creation time, it is also possible to dynamically copy
 The \lstinline{src} argument is the file descriptor of the lwC from which the subset of resources specified in \lstinline{rspecs} should be mapped (\textit{overlaid}) into the current lwC.
 The target address (for memory overlays) or file descriptor number is guaranteed to be the same as in \lstinline{src}.
 To unmap an existing overlay, \lstinline{src} must be set to the current lwC and \lstinline{rspecs} must be filled with \lstinline{UNMAP} resource specifiers. 
-As far as we can tell, overlays do not support stacking: after unmapping an overlay that overlaid an existing memory mapping, that original memory mapping is not automatically re-mapped.  %vmspace_lwc_merge
-Note that in contrast to memory and file descriptors which can be mapped by ranges, credentials can only be mapped whole or nothing\todo{proof is in code, language}. 
+Overlays do not support stacking: after unmapping an overlay that overlaid an existing memory mapping, that original memory mapping is not automatically remapped.\todo{proof by code}  %vmspace_lwc_merge
 
-Overlaying resources from an lwC descriptor \lstinline{src} further requires that this descriptor is equipped with \textit{access capabilities} for each requested resource.
-The rules of this access capability system are as follows:
+Overlaying resources from an lwC descriptor \lstinline{src} further requires that this descriptor is equipped with \textbf{access capabilities} for each requested resource.
+The rules of this capability system are as follows:
 \begin{itemize}
   \item After lwC creation, the creator receives the \lstinline{new} lwC descriptor with a universal access capability to the child lwC.
-  \item After lwC creation, the child receives the lwC descriptor of its creator in \lstinline{new}, equipped with access capabilities to ranges flagged appropriately on lwcCreate\todo{mention \lstinline{LWC_MAY_ACCESS}?}.
-  \item Access capabilities cannot be extened.
-  \item Access capabilities can be reduced with the \lstinline{lwcRestrict(lwc, rspecs)} system call: the resource ranges specified in \lstinline{rspecs} can no longer be \lstinline{lwcOverlay}d throuh the \lstinline{lwc} descriptor.
-  \item It is possible to pass lwC descriptors between lwCs --- they are not special with regards to file descriptor overlays.
+  \item After lwC creation, the child receives the lwC descriptor of its creator in \lstinline{new}, equipped with access capabilities to ranges flagged with \lstinline{LWC_MAY_ACCESS} on lwcCreate.
+  \item Access capabilities cannot be extended.
+  \item Access capabilities can be reduced with the \lstinline{lwcRestrict(target, rspecs)} system call by any lwC that holds the lwC descriptor \lstinline{target}:
+        after a successful \lstinline{lwcRestrict}, the resource ranges specified in \lstinline{rspecs} can no longer be overlaid using \lstinline{lwcOverlay(target, ...)}.
+  \item Access capabilities are invariant across overlays: to the file descriptor entry in the kernel, and is therefore invariant across overlays.
 \end{itemize}
-In order to grasp the access capability system, we find it helpful to look at the implementation:
-the overlay permission check and \lstinline{lwcRestrict} encode the current access capabilities of a file descriptor as the kernel representation of \lstinline{rspecs} in lwC file descriptor table entry (struct filedescent).
 
-Note that revocation of existing overlays is not possible, i.e., \lstinline{lwcRestrict} only affects future mappings.\todo{proof, not mentioned in paper / impl. see microkernel discussions}
+In order to grasp the access capability system, we find it helpful to peek at the authors' implementation.
+The access capabilities associated with an lwC descriptor are represented as an \lstinline{rspecs} in lwC file descriptor table entry (\lstinline{struct filedescent}).
+The overlay permission check enforces that the requested overlay rspec is a subset of the rspec in that file descriptor table entry.
+
+Note that revocation of existing overlays is not possible, i.e., \lstinline{lwcRestrict} only affects future overlays.\todo{proof, not mentioned in paper / impl. see microkernel discussions}
 
 \subsection{Syscall Interposition in Capability Mode}\label{design:syscallinterpos}
 % kernel: lwctrapto in sys/kern/subr_syscall.c basically just calls lwcswitch 
-When compartmentalizing an application into different lwCs, it can be desirable to limit the system calls an lwC may perform, e.g., to limit filesystem access to a subdirectory or prohibit any network communication.
+When compartmentalizing an application into different lwCs, it can be desirable to limit the system calls an lwC may perform, e.g., to limit filesystem access to a subdirectory or prohibit network communication.
 The lwC design builds onto existing syscall filtering and mechanisms, e.g. Capsicum capability mode on FreeBSD or seccomp on Linux\todo{cite}:
 when an lwC is created with the \lstinline{LWC_TRAP_SYSCALL} flag, system calls made by the new lwC or any of its children that would normally trap due to the syscall filtering mechanism are redirected to the creator as an \lstinline{lwcSwitch} with \lstinline{caller} set to the trapping lwC.
 After the trap-handling lwC has evaluated its policy, the \lstinline{lwcSyscall} system call provides the mechanism for the trap-handling lwC to execute any system call (the original one, another one) \textbf{in the context of the trapping lwC}:
@@ -309,15 +311,17 @@ After the trap-handling lwC has evaluated its policy, the \lstinline{lwcSyscall}
              syscall, syscall-args)
 \end{lstlisting}
 
-An alternative design could have the trap-handling lwC invoke the allowed syscalls itself and return the result as the opaque argument in an \lstinline{lwcSwitch} to the trapping lwC.
+An alternative design could require the trap-handling lwC to invoke the allowed syscalls itself and return the result as the opaque argument in an \lstinline{lwcSwitch} to the trapping lwC.
 However, if the syscall arguments contain pointers to user memory or file descriptors, the trap-handling lwC would need to overlay those from the trapping lwC.
-\lstinline{lwcSyscall} avoids the overhead of the overlay syscalls that would be required in that alternative design:
+\lstinline{lwcSyscall} avoids the associated overhead:
 the \lstinline{mask} argument allows the trap-handling lwC to choose per resource type\footnote{granularity: all memory, all file descriptors, the credential} whether its own mapping or that of the trapping lwC should be used while the syscall is executed.
-\lstinline{lwcSyscall} is integrated with the access capability system explained in the previous section:
+Note that \lstinline{lwcSyscall} this mechanism is still integrated with the access capability system explained in the previous section:
 the \lstinline{trappingLwc} descriptor must be equipped with access capabilities for the resource types that \lstinline{mask} specifies.
 
 \subsection{Summary}
+\todo{forking \& signal semantics? just skip them?}
 
+\todo{TODO}
 % TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO 
 \begin{figure}[h] % TODO make this a broad figure?
 \centering
@@ -344,7 +348,35 @@ the \lstinline{trappingLwc} descriptor must be equipped with access capabilities
 
 \subsection{Threat Model \& Security Guarantees}\label{design:threat}
 
-\subsection{Usage Examples}\label{design:usage}
+In this subsection, we are going to define a threat model for lwCs and assess how the design meets the canonical information security properties of \textit{confidentiality}, \textit{integrity} and \textit{availability}\cite{ciagoals}.
+
+\textbf{Threat Model}\hspace{1em}
+The run-time trusted computing base of an application that uses light-weight contexts is the
+hardware, firmware, (monolithic) OS kernel and the any user space code that runs before \lstinline{main} starts executing.
+Hardware-based attacks are excluded unless mitigated by the OS, including side-channels and exploitation of out-of-order \& speculative execution.\todo{correct to exclude ooo and spec}
+The threat model \& guarantees of kernel subsystems apart from the new lwC subsystem is inherited, including isolation guarantees between processes, as lwCs only affect a single process\todo{and its forks...}.
+Malicious interference of high-privileged processes is excluded.
+With regards to the implementation, it is assumed that all subsystems use correct accessor functions for a thread's address space, file descriptor table and credential, instead of relying on the assumption that there is only one of those resources per process.
+
+\textbf{Security Guarantees}\hspace{1em}
+Light-weight contexts can be used to create multiple protection domains within a single process,
+each with a private \textit{address space}, \textit{file descriptor table} and the system \textit{credential} and private per-thread logical control-flow state (section~\ref{design:createdestroy}).
+Switching between the domains and single-value argument passing is controlled by the kernel (section~\ref{design:switching}).
+Dynamic sharing of resources between lwCs is also kernel-controlled using access capabilities (section~\ref{design:overlays}).
+Access to global namespaces \& system resources (IP sockets, filesystem, IPC) is limited by the lwC's \textit{credential} and can be further controlled through syscall interposition (section~\ref{design:syscallinterpos}).
+
+Kernel-controlled switching between lwCs results in \textbf{well-defined entry points} under the assumption of an lwC created using \lstinline{COPY} resource specifier\todo{this is quite coarse, AS and FDT sufficient?}:
+the first \lstinline{lwcSwitch} diverts physical control flow to the \lstinline{lwcCreate} call site in the new lwC, and all subsequent \lstinline{lwcSwitch}es resume execution at an lwcSwitch all site.
+Under the assumption of no dynamic sharing, the address space of the target lwC is inaccessible to any caller.
+Thus, integrity and confidentiality guarantees for code and data within an lwC are those of the application code creating the lwC and those of the code executing in the target lwC after \lstinline{lwcSwitch}.
+The result is a narrow, auditable interface.
+
+Privsep through credentials, system wide \& global namespaces
+
+availability not guaranteed at all
+
+
+\subsection{Use Cases \& API Examples}\label{design:usage}
 
 \subsection{Limitations}
 
