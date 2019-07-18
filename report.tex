@@ -61,6 +61,20 @@
 
 \section{Introduction}\label{intro}
 
+% TODO NICE SUMMARY OF WHAT LWCs PROVIDE, CAN WE USE THIS ANYWHERE?
+%Light-weight contexts can be used to create multiple protection domains within a single process,
+%each with a private \textit{address space}, \textit{file descriptor table} and the system \textit{credential} and private per-thread logical control-flow %state (section~\ref{design:createdestroy}).
+%Switching between the domains and single-value argument passing is controlled by the kernel (section~\ref{design:switching}).
+%Dynamic sharing of resources between lwCs is also kernel-controlled using access capabilities (section~\ref{design:overlays}).
+%Access to global namespaces \& system resources (IP sockets, filesystem, IPC) is limited by the lwC's \textit{credential} and can be further controlled %through syscall interposition (section~\ref{design:syscallinterpos}).
+%
+%Kernel-controlled switching between lwCs results in \textbf{well-defined entry points} under the assumption of an lwC created using \lstinline{COPY} resource %specifier\todo{this is quite coarse, AS and FDT sufficient?}:
+%the first \lstinline{lwcSwitch} diverts physical control flow to the \lstinline{lwcCreate} call site in the new lwC, and all subsequent \lstinline{lwcSwitch}%es resume execution at an lwcSwitch all site.
+%Under the assumption of no dynamic sharing, the address space of the target lwC is inaccessible to any caller.
+%Thus, integrity and confidentiality guarantees for code and data within an lwC are those of the application code creating the lwC and those of the code %executing in the target lwC after \lstinline{lwcSwitch}.
+%The result is a narrow, auditable interface.
+%
+
 Application Compartmentalization as in seminar presentation. Ignore Session Isolation \& Snapshots?
 
 Line of throught:
@@ -349,68 +363,67 @@ the \lstinline{mask} argument allows the trap-handling lwC to choose per resourc
 In this subsection, we define a threat model for lwCs and assess how the design meets the canonical information security properties of \textit{confidentiality}, \textit{integrity} and \textit{availability}\cite{ciagoals}.
 
 \textbf{Threat Model}\hspace{1em}
-The run-time trusted computing base of a process that uses light-weight contexts (\textit{lwC-process}) is the
+The run-time trusted computing base of a process that uses light-weight contexts is the
 hardware,
 firmware,
 monolithic OS kernel,
 any user space processes able to influence the execution \& environment of the lwC-process,
 and any user space code that runs before \lstinline{main} starts executing.
 Once \lstinline{main} starts executing, we assume an attacker who is able to hijack control flow and execute arbitrary code in user-mode in the currently established execution context, i.e., the current lwC.
-Specifically, an attacker may access any mapped memory through unprivilieged instructions and invoke any system call, including lwC management calls.
+Specifically, an attacker may access any mapped memory through unprivilieged instructions and invoke any system call, including lwC management calls, and attempt privilege escalation directly or indirectly by invoking said system calls.
 
-\textbf{Protection Goals}\hspace{1em}
-Light-weight contexts enable the creation of multiple protection domains whithin a single process.
-Therefore, we demand that the lwC abstraction must not weaken the protection between different processes.
-Within a process using lwC's, it is the programmer's responsibility to determine the application-specific protection goals and to satisfy them using the security guarantees provided by lwCs.
+\textbf{Resource Mappings}\hspace{1em}
+An lwC consists of resource mappings for the three resource kinds address space, file descriptor table and credential.
+The kernel implementation of \texttt{lwcSwitch} must guarantee that all kernel subsystems as well as the memory management unit will always perform their respective access permission checks against the resource mappings of the lwC that was last switched to, i.e., the current thread's current lwC.
+Under that assumption, the lwC security guarantees rely solely on the soundness of the rules by which resource mappings can be manipulated from user space through \lstinline{lwcCreate}, \lstinline{lwcRestrict} and \lstinline{lwcOverlay}, as well as their correct implementation.
+Note that neither the original paper's authors nor us provide a proof of soundness of the resource mapping manipulation.
 
-\textbf{lwC Requirements}\hspace{1em}
-An lwC consists of resource mappings for address space, file descriptor table and credential.
-The kernel implementation of \texttt{lwcSwitch} guarantees that syscall handlers and memory management unit will perform their respective access permission checks against the resource mappings of the lwC that is being switched in.
-Under that assumption, the security guarantees provided by lwCs rely solely on the soundness of the manipulation of those resource mappings through the lwC API, i.e., the modifications possible through \lstinline{lwcCreate}, \lstinline{lwcRestrict} and \lstinline{lwcOverlay}.
-
-The only remaining lwC API is \lstinline{lwcSyscall}:
+The \lstinline{lwcSyscall} API must be considered separately:
 its \lstinline{mask} argument allows the trap-handling lwC to specify a \textit{subset} of resource mappings to be established for the duration of the syscall.
-Note that this is different from \lstinline{lwcSwitch}, which only allows switching \textit{all three resource mappings} atomically before executing code in the context of the target lwC.
-We therefore demand that it must not be possible to extend the set of \textit{passing} permission checks in syscall handlers or memory management unit by invoking \lstinline{lwcSyscall} with a \lstinline{mask} that combines resource mappings from trapping and trap-handling lwC, compared to invoking the syscall directly from either the trapping or the trap-handling lwC.
+This differs from \lstinline{lwcSwitch}, which only allows switching \textit{all three resource mappings} atomically before executing code in the context of the target lwC.
+We therefore demand that it must not be possible to extend the set of \textit{passing} permission checks in kernel or memory management unit by invoking \lstinline{lwcSyscall} with a \lstinline{mask} that combines resource mappings from trapping and trap-handling lwC, compared to invoking the syscall directly from either the trapping or the trap-handling lwC.
 
-\textbf{Application Compartmentalization}
-Under the assumption that the kernel lwC implementation meets above requirements, application developers can leverage lwCs to meet application protection goals.
-However, it is to developers to verify that 
-We restrict ourselves to a discussion of the example use case of \textit{application compartmentalization}
 
-%y example of a network server that processes data and uses encryption:
-%
-%individual components of an application, such as the code and data required to encrypt a 
-%
-%Under the assumption of an lwC implementation that satisfies above requirements, application developers must bear the burden\todo{language?} of lwCs to %increase the confidentiality, integrity and availability guarantees     must use  the security properties that an lwC- much of the security guarantees of an %lwC-enabled application onto the application developer:
-%\textbf{confidentiality \& integrity} of code and data accessible by an lwC depend on the resource-sharing specified on creation, as well as the use of %dynamic resource sharing.
-%\textbf{availability} is not 
-%sharin  the access capabilities overlay rights 
+\textbf{Achieving Protection Goals}\hspace{1em}
+Applications must create lwCs with correct resource mappings and access capabilities in order to achieve their desired protection goals.
+For example, full confidentiality and integrity of a region of memory in the root lwC can be achieved by asserting that any child lwC is created with a resource specifier that marks that region as \lstinline{UNMAP}ed.
+\textit{Loop holes}\todo{language} such as attaching a debugger to the parent lwC from the child lwC must also be addressed, e.g., through system call interposition or by dropping privileges in the child lwC.
 
-%Hardware-based attacks are excluded or assumed to be mitigated by the OS, including side-channels and exploitation of out-of-order \& speculative %execution.\todo{correct to exclude ooo and spec}
-%The threat model \& guarantees of kernel subsystems apart from the new lwC subsystem is inherited, including isolation guarantees between processes, as lwCs %only affect a single process\todo{and its forks...}.
-%Malicious interference of high-privileged processes is excluded.
-%With regards to the implementation, it is assumed that all subsystems use correct accessor functions for a thread's address space, file descriptor table and %credential, instead of relying on the assumption that there is only one of those resources per process.
+It is evident that given a tree of lwCs created with \lstinline{lwcCreate}, access rights to resources of parent lwCs from child lwCs do monotonically decrease under the absence of dynamic resource sharing.
+Conversely, the use of dynamic sharing prohibits such general statements about access rights between lwCs because the dynamic flow of lwC file descriptors at runtime cannot always be statically predicted.
 
-%\textbf{Security Guarantees}\hspace{1em}
-%Light-weight contexts can be used to create multiple protection domains within a single process,
-%each with a private \textit{address space}, \textit{file descriptor table} and the system \textit{credential} and private per-thread logical control-flow %state (section~\ref{design:createdestroy}).
-%Switching between the domains and single-value argument passing is controlled by the kernel (section~\ref{design:switching}).
-%Dynamic sharing of resources between lwCs is also kernel-controlled using access capabilities (section~\ref{design:overlays}).
-%Access to global namespaces \& system resources (IP sockets, filesystem, IPC) is limited by the lwC's \textit{credential} and can be further controlled %through syscall interposition (section~\ref{design:syscallinterpos}).
-%
-%Kernel-controlled switching between lwCs results in \textbf{well-defined entry points} under the assumption of an lwC created using \lstinline{COPY} resource %specifier\todo{this is quite coarse, AS and FDT sufficient?}:
-%the first \lstinline{lwcSwitch} diverts physical control flow to the \lstinline{lwcCreate} call site in the new lwC, and all subsequent \lstinline{lwcSwitch}%es resume execution at an lwcSwitch all site.
-%Under the assumption of no dynamic sharing, the address space of the target lwC is inaccessible to any caller.
-%Thus, integrity and confidentiality guarantees for code and data within an lwC are those of the application code creating the lwC and those of the code %executing in the target lwC after \lstinline{lwcSwitch}.
-%The result is a narrow, auditable interface.
-%
-%Privsep through credentials, system wide \& global namespaces
-%
-%availability not guaranteed at all
-%
+Availability cannot be guaranteed by lwCs:
+an attacker in control of an lwC may invoke the \lstinline{exit} system call to terminate the process unless syscall interposition is used to prevent that syscall.
+An attacker may also modify the code in a compromised lwC to block indefinitely or never invoke \lstinline{lwcSwitch}, effectively trapping all threads that switch to the compromised lwC.
+The authors dismiss both problems by describing denial-of-service (DoS) within a process as "self-defeating".\todo{quote}
+We remark that the original paper does not address per-lwC resource usage (limits), which could serve as another DoS vector. 
 
-\subsection{Use Cases \& API Examples}\label{design:usage}
+
+\subsection{Example Use Case: Application Compartmentalization}\label{design:usage}
+
+Application developers can leverage lwCs to achieve application protection goals in a more fine-grained and light-weight manner compared to traditional process-based privilege separation.\todo{quote provos / link related work}
+We restrict ourselves to a discussion of a fictional application called \newcommand\appname{\textit{convert.io}\xspace} \appname which will use lwC-based \textit{application compartmentalization} to increase confidentiality of user data and its TLS private key. 
+\appname is a network service which
+\begin{enumerate}
+  \item accepts HTTP POST requests over TLS/HTTPS from arbitrary internet clients using a HTTP server library,
+  \item loads the request body into memory,
+  \item uses an image processing library to convert the image into the client-requested output format,
+  \item sends a response with the converted image to the client.
+\end{enumerate}
+
+We consider an attacker who exploits a vulnerability in the image processing library's image codec parser to achieve remote code execution:
+in an uncompartmentalized \appname instance, the attacker could read the entire process's memory to extract the private key of the TLS key pair or access other user's images being handled in concurrently executing requests.
+In contrast, the lwC-enabled \appname uses separate lwCs for the TLS handshake to protect the private key, as well as separate lwCs for each request to protect per-request image data.
+
+\begin{figure}[h]
+  \label{design:usage:apparchpre}
+  \label{design:usage:apparchpost}
+  \centering
+  \includegraphics[height=4cm]{fig/encryption-compartment}
+  \caption{
+    TODO FULL WIDTH a)  b) comparison as described in Example Use Case section
+  }
+\end{figure}
 
 \subsection{Limitations}
 
