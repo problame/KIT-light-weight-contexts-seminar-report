@@ -330,8 +330,21 @@ However, if the syscall arguments contain pointers to user memory or file descri
 \lstinline{lwcSyscall} avoids the associated overhead:
 the \lstinline{mask} argument allows the trap-handling lwC to choose per resource type\footnote{granularity: all memory, all file descriptors, the credential} whether its own mapping or that of the trapping lwC should be used while the syscall is executed.
 
+
+\subsection{Signal Delivery}
+UNIX signal delivery with lwCs faces the same design questions as with threads, i.e., to which lwCs a given signal should be delivered.
+The authors' solution is to classify signals as either \textit{attributable} or \textit{non-attributable}:
+attributable signals such as for segmentation faults are always delivered to the thread in the lwC that caused the signal to occur.
+Non-attributable signals are delivered to \textit{all} lwCs created with a corresponding flag.
+Consequently, each thread must have a separate signal mask per lwC.\todo{verify in src}
+
+\subsection{Forking \& Exit}
+A forked process inherits the parent's lwCs.
+However, only the forking thread exists in the child process, presumably due to POSIX compliance\cite{forkmultithread}. %read do_fork, which calls copy_snaps
+Shared memory, either through resource-specifiers on \lstinline{lwcCreate} or \lstinline{lwcOverlay} or through \lstinline{mmap(..., MAP_SHARED)} stays shared accross forks.
+The authors do not specify the behavior for file descriptor tables and credential; we assume unmodified fork semantics per lwC.
+
 \subsection{Summary}
-\todo{forking \& signal semantics? just skip them?}
 
 \todo{TODO}
 % TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO 
@@ -358,9 +371,9 @@ the \lstinline{mask} argument allows the trap-handling lwC to choose per resourc
 \end{figure}
 
 
-\subsection{Threat Model \& Security Guarantees}\label{design:threat}
+\section{Security Analysis}\label{design:threat}
 
-In this subsection, we define a threat model for lwCs and assess how the design meets the canonical information security properties of \textit{confidentiality}, \textit{integrity} and \textit{availability}\cite{ciagoals}.
+In this section, we define a threat model for lwCs and assess how the design meets the canonical information security properties of \textit{confidentiality}, \textit{integrity} and \textit{availability}\cite{ciagoals}.
 
 \textbf{Threat Model}\hspace{1em}
 The run-time trusted computing base of a process that uses light-weight contexts is the
@@ -439,16 +452,46 @@ Note further that we have not discussed the concurrency model of \appname: both 
 
 \section{Implementation}\label{impl}
 
-The authors implement light-weight contexts in the FreeBSD 11.0 Operating System.
+The authors implement light-weight contexts in the FreeBSD 11.0 operating system and make the source code publicly available.~\cite{lwckernelrepo,lwclibsrepo} % see literature.bib for git diff
+The major changes to the kernel consist of:
+\begin{itemize}
+  \item An implementation of syscall handlers and resource specifier logic (+2388 lines in \texttt{sys/sys/kern\_snap.c}).
+  \item Support for resource specifiers and overlays in
+    file descriptor management (\lstinline{struct filedesc}, +251 lines in \texttt{sys/kern/kern\_descrip.c})
+    and memory management subsystem  (+693 lines in \texttt{sys/vm/vm\_map.c}, +178 lines in \texttt{sys/amd64/amd64/pmap.c}).
+  \item Platform-dependent code for \lstinline{lwcSwitch} (+250 lines in \texttt{sys/amd64/amd64/cpu\_switch.S}, +171 lines in \texttt{sys/amd64/amd64/vm\_machdep.c}).
+\end{itemize}
 
-% per-resource kind sharing implementation
-% signal delivery
-% fork semantics
+User-space support for lwCs is provided through a C~library containing syscall wrappers and a synchronized hash-table that enables key-value sharing across lwCs.
+The authors also provide a PHP extension that makes the lwC API accessible from scripts, which is requried for the evaluation.~\cite{lwclibsrepo}
 
 \section{Evaluation}\label{eval}
+The authors evaluate their implementation using micro-benchmarks to determine the primitive operations' latency
+and integrate light-weight contexts into production applications, demonstrating its applicability and real-world performance impact.
 
-The authors evaluate their implementation using micro-benchmarks and application benchmarks.
-% micro-benchmarks: performance of primitive operations
+\subsection{Micro-Benchmarks}
+The micro-benchmarks first measure \lstinline{lwcSwitch} latency with regular context switching latency as the baseline, demonstrating a 2x speedup with negligible standard deviation.
+While not explicitly stated, we assume that the measured \lstinline{lwcSwitch} is between lwCs with different address spaces.
+The regular context switch is induced through a semaphore.
+
+The overhead of creating and destroying lwCs is only given cummutatively: creating and immediately destroying a single lwC takes $87.7\mu s \approx 233282$ cycles on the evaluation machine. %(87.7*10^-6) * 2.66*10^9 = 233282
+The authors do not provide a meaningful baseline, e.g., the latency of a forking and immediately exiting in the child.
+An extended version of this micro-benchmark is also used to confirm that the run-time overhead within an lwC is limited to CoW faults, whose cost grow linearly with the amount of memory \lstinline{COPY}d on \lstinline{lwcCreate}.
+
+The syscall interposition feature is evaluated by example:
+the authors implement a reference monitor that intercepts the \lstinline{open}, \lstinline{read} and \lstinline{write} system calls, execute a dummy application that performs a fixed number of those system calls, and measure total execution time.
+For comparison, they also measure a variant with inlined policy checks, as well as a variant that uses FreeBSD's Capsicum and multiple processes.
+Thus, the result is the \textit{total execution time} per variant and system call, which is only useful to compare throughput, not latency.
+Expectably, inlined policy checks exhibit the lowest overhead in all cases.
+The context switching required for Capsicum and syscall interposition penalizes those variants on short syscalls (\lstinline{open}, small \lstinline{read} and \lstinline{write}).
+For longer syscalls (large \lstinline{read}, \lstinline{write}), syscall interposition benefits from the \lstinline{mask} argument because copying the buffer to the reference monitor is not necessary.
+\todo{figure helpful?}
+
+\subsection{Application I: PHP-FPM}
+The authors integrate light-weight contexts into the PHP-FPM FastCGI server.
+
+\subsection{Application II: Apache \& nginx with OpenSSL}
+
 % application benchmarks:
 %  - demonstrate applicability of lwCs into existing code bases
 %  - evaluate the performance impact
