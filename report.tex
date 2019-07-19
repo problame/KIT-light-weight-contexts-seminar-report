@@ -412,8 +412,8 @@ We restrict ourselves to a discussion of a fictional application called \newcomm
 \end{enumerate}
 
 We consider an attacker who exploits a vulnerability in the image processing library's image codec parser to achieve remote code execution:
-in an uncompartmentalized \appname instance, the attacker could read the entire process's memory to extract the private key of the TLS key pair or access other user's images being handled in concurrently executing requests.
-In contrast, the lwC-enabled \appname uses separate lwCs for the TLS handshake to protect the private key, as well as separate lwCs for each request to protect per-request image data.
+in an uncompartmentalized \appname instance, the attacker could read the entire process's memory to extract the private key of the TLS key pair or access other users' images from other requests.
+In contrast, the lwC-enabled \appname uses separate lwCs for the TLS handshake to protect the private key (\textit{key confidentiality}), as well as separate lwCs for each request to protect per-request image data (\textit{session isolation}).
 
 \begin{figure}[h]
   \label{design:usage:apparchpre}
@@ -425,11 +425,30 @@ In contrast, the lwC-enabled \appname uses separate lwCs for the TLS handshake t
   }
 \end{figure}
 
-\subsection{Limitations}
+\section{Implementation}\label{impl}
 
-\section{Implementation \& Evaluation}\label{eval}
+The authors implement light-weight contexts in the FreeBSD 11.0 Operating System.
+
+% per-resource kind sharing implementation
+% signal delivery
+% fork semantics
+
+\section{Evaluation}\label{eval}
+
+The authors evaluate their implementation using micro-benchmarks and application benchmarks.
+% micro-benchmarks: performance of primitive operations
+% application benchmarks:
+%  - demonstrate applicability of lwCs into existing code bases
+%  - evaluate the performance impact
+% - php-fpm: snapshot & rollback
+% - apache + nginx: session isolation, TLS private key isolation
 
 \subsection{Critique}\label{eval:crit}
+
+% nice that is in fact applicable
+% but:
+% - PCID exhaustion not addressed in design & evaluation
+% - benchmark scenario: single 44B file => nginx likely performs only 2 context switches
 
 \section{Related Work}\label{rel}
 
