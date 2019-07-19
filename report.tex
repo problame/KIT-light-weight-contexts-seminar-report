@@ -487,16 +487,53 @@ The context switching required for Capsicum and syscall interposition penalizes 
 For longer syscalls (large \lstinline{read}, \lstinline{write}), syscall interposition benefits from the \lstinline{mask} argument because copying the buffer to the reference monitor is not necessary.
 \todo{figure helpful?}
 
-\subsection{Application I: PHP-FPM}
-The authors integrate light-weight contexts into the PHP-FPM FastCGI server.
+\subsection{Application I: FastCGI Acceleration in PHP-FPM}
+The authors integrate light-weight contexts into the PHP-FPM FastCGI server and adapt a Zend Hello-World application to use an lwC-enabled technique called \textit{snapshot-and-rollback}:
+on first startup, before handling any request-specific data, the PHP script creates a snapshot of its initialized state using \lstinline{lwcCreate}.
+This snapshot is then used as the basis for handling subsequent requests in a separate isolated lwCs which start execution at the pre-initialized state of the original snapshot.
+Pseudocode for this operation is provided in figure~\ref{eval:phpfpm:pseudocode}.
 
-\subsection{Application II: Apache \& nginx with OpenSSL}
+\begin{lstlisting}[label=eval:phpfpm:pseudocode]
+  SNAPSHOT-and-reload source code here
+\end{lstlisting}
 
-% application benchmarks:
-%  - demonstrate applicability of lwCs into existing code bases
-%  - evaluate the performance impact
-% - php-fpm: snapshot & rollback
-% - apache + nginx: session isolation, TLS private key isolation
+The authors compare the throughput of their snapshot-and-reload variant against upstream PHP-FPM, both with and without PHP opcode cache:
+snapshot-and-reload achieves \textbf{2.7x throughput} if the opcode cache is disabled and \textbf{1.3x throughput} with enabled opcode cache.\todo{need to explain more verbosely why performance gain?}
+Notably, this performance gain also comes with the security benefit of handling each request in a separate address space.
+
+\subsection{Application II: Apache \& nginx with Session Isolation}
+The authors also integrate light-weight contexts into the popular Apache and nginx web servers to protect TLS private keys and per-session data from attackers.
+The Apache variant extends the Apache pre-fork concurrency mode, which uses dedicated threads per active client connection:
+before a thread starts handling a new connection, it creates an lwC with private address space and file descriptor table and switches into it, thereby isolating potential attackers to a single thread in a dedicated lwC.
+nginx implements an event-loop using non-blocking I/O with a single worker thread per core:
+as with Apache, an lwC is created per connection but its descriptor is tracked in a hash map index by the socket file descriptor number.
+When the kernel notifies the worker thread about pending I/O on a socket, the worker looks up the corresponding lwC and switches to it before resuming regular nginx request handling.
+When socket I/O is reported to block, the worker switches back to the main event loop to handle other pending I/O.\todo{pending I/O comprehensible?}
+Pseudocode for both Apache and nginx modifications is provided in figure~\ref{eval:web:pseudocode}.
+
+\begin{lstlisting}
+  Apache pseudocode
+
+  Nginx pseudocode
+\end{lstlisting}
+
+The first set of benchmarks measures throughput of GET requests for a single 45 byte document at a constant number of concurrent clients.
+The authors perform the experiment for different \textit{session lenghts}, i.e., the number of requests sent over a single connection using HTTP keep-alive.
+For Apache, the lwC modifications exhibit significantly worse throughput for short sessions than stock pre-fork mode ($\ge80\%$ lower throughput).
+16-request sessions, which we consider generous for highly interactive web applications, still exhibit $\approx 16\%$ lower throughput.
+For nginx, performance implications are much less severe, with at most 22\% lower throughput for four-request sessions and at $\approx6\%$ lower throughput at 16-request sessions.
+Our interpretation of the throughput improvements for Apache with growing session length is that the one-time additional latency for lwC creation and destruction is amortized for longer sessions.
+However, this does not explain why nginx throughput is less-affected by lwCs, because nginx also creates an lwC per connection.
+
+The authors also conduct a scalability experiment for nginx:
+at a fixed session length of 256 requests, for 45 byte and 900 byte documents, the total throughput (GET/second) is measured for different numbers \todo{counts?} of concurrent clients.
+For up to 6500 concurrent clients, there is no significant difference bewteen upstream nginx and lwC nginx.
+For the 45 byte experiment, higher concurrency correlates with higher standard deviation and 19\% lower mean througput.
+900 byte requests degrade more gracefully, with up to 10\% lower mean throughput at \~19500 concurrent clients.
+The authors explain the sudden drop in performance at 6500 clients with CPU-bound behavior of an interrupt handler thread, which obviously affects both stock and modified nginx.
+
+
+
 
 \subsection{Critique}\label{eval:crit}
 
