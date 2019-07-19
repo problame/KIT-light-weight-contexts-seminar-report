@@ -401,21 +401,26 @@ We remark that the original paper does not address per-lwC resource usage (limit
 
 \subsection{Example Use Case: Application Compartmentalization}\label{design:usage}
 
-Application developers can leverage lwCs to achieve application protection goals in a more fine-grained and light-weight manner compared to traditional process-based privilege separation.\todo{quote provos / link related work}
+Application developers can leverage lwCs to achieve application protection goals.
 We restrict ourselves to a discussion of a fictional application called \newcommand\appname{\textit{convert.io}\xspace} \appname which will use lwC-based \textit{application compartmentalization} to increase confidentiality of user data and its TLS private key. 
 \appname is a network service which
 \begin{enumerate}
-  \item accepts HTTP POST requests over TLS/HTTPS from arbitrary internet clients using a HTTP server library,
-  \item loads the request body into memory,
-  \item uses an image processing library to convert the image into the client-requested output format,
-  \item sends a response with the converted image to the client.
+  \item accepts JPEG images over TLS from arbitrary internet clients,
+  \item uses an image processing library to convert the image into the client-requested output format and
+  \item sends a response with the converted image back to the client.
 \end{enumerate}
 
 We consider an attacker who exploits a vulnerability in the image processing library's image codec parser to achieve remote code execution:
-in an uncompartmentalized \appname instance, the attacker could read the entire process's memory to extract the private key of the TLS key pair or access other users' images from other requests.
-In contrast, the lwC-enabled \appname uses separate lwCs for the TLS handshake to protect the private key (\textit{key confidentiality}), as well as separate lwCs for each request to protect per-request image data (\textit{session isolation}).
+in an uncompartmentalized design, a successful attacker can read the entire process's memory to extract the private key of the TLS key pair or access other users' images from other requests.
+Both \textit{private key confidentiality} as well as \textit{client session isolation} are compromised.
 
-\begin{figure}[h]
+In contast, an lwC-enabled design loads the TLS private key into the root lwC and waits for connections.
+For each new connection, it creates a worker lwC with private copy of the root lwC's address space and file descriptor table and switches into it.
+After performing the TLS hand-shake, it erases the private key from the worker address space and, only then, starts executing the riskier image processing code.
+A successful attacker now does not have access to the private key and is limited to the socket representing their own connection, as well as their own request data.
+A visualization of the two approaches is given in figure~\ref{design:usage:apparchpost}.
+
+\begin{figure}
   \label{design:usage:apparchpre}
   \label{design:usage:apparchpost}
   \centering
@@ -424,6 +429,13 @@ In contrast, the lwC-enabled \appname uses separate lwCs for the TLS handshake t
     TODO FULL WIDTH a)  b) comparison as described in Example Use Case section
   }
 \end{figure}
+
+Note that we have constructed a simplified example where requests can be handled in full isolation.
+In practice, some sharing will be required, e.g., for global statistics, a database connection pool, logging services, etc.
+In an lwC-compartmentalized design, these components would exectute in separate lwCs and be made accessible to the worker lwCs via shared memory, \lstinline{lwcSwitch}, \lstinline{lwcOverlay} or traditional IPC mechanisms.
+
+Note further that we have not discussed the concurrency model of \appname: both threaded and event-driven models are possible, as will be shown in the evaluation (section~\ref{eval}).
+
 
 \section{Implementation}\label{impl}
 
