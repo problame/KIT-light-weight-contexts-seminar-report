@@ -521,8 +521,8 @@ Pseudocode for both Apache and nginx modifications is provided in figure~\ref{ev
 The first set of benchmarks measures \textit{throughput} of GET requests for a \textit{single 45 byte document} at a constant number of concurrent clients.
 The authors perform the experiment for different \textit{session lenghts}, i.e., the number of requests sent over a single connection using HTTP keep-alive.
 For Apache, the lwC modifications exhibit significantly worse throughput for short sessions than stock pre-fork mode ($\ge80\%$ lower throughput).
-16-request sessions, which we consider generous for highly interactive web applications, still exhibit $\approx 16\%$ lower throughput.
-For nginx, performance implications are much less severe, with at most 22\% lower throughput for four-request sessions and at $\approx6\%$ lower throughput at 16-request sessions.
+16-request sessions, which we consider generous for highly interactive web applications, still exhibit $\sim 16\%$ lower throughput.
+For nginx, performance implications are much less severe, with at most 22\% lower throughput for four-request sessions and at $\sim 6\%$ lower throughput at 16-request sessions.
 Our interpretation of the throughput improvements for Apache with growing session length is that the one-time additional latency for lwC creation and destruction is amortized for longer sessions, as can bee observed at 256 reqs/session.
 However, this theory does not explain why nginx throughput is less affected, because nginx also creates an lwC per connection.
 
@@ -607,25 +607,24 @@ Thus, any file-system I/O performed by Apapche or nginx is not going to block.
 Further, both the HTTP requests and responses for those documents fit within a single TCP frame transferred over a low-latency dedicated ethernet link.
 Therefore, socket I/O is also not likely to block if the evaluation setup is not network-bandwidth bound (see below).
 Given the low probability of blocking, we suspect that \textit{both} the nginx and Apache benchmarks only perform the following lwC and scheduling-related operations:
-\begin{enumerate}
-\item For a new connection, create the lwC and switch to it,
+\begin{enumerate}[itemsep=0pt,parsep=0pt]
+\item For a new connection, create the lwC once and switch to it,
 \item\label{crit:enum:tx} handle requests on that connection until the TCP tx buffer is full (no context switching)
-\item if nginx: switch out of lwC if I/O blocks, goto \ref{crit:enum:tx},
-\item if apache: block (context switch to other thread in other lwC) until wakeup, then goto \ref{crit:enum:tx},
+\item if nginx (non-blocking I/O): switch out of lwC, when returning, goto \ref{crit:enum:tx},
+\item if apache (blocking I/O): block, OS context-switches to another thread in other lwC, wakeup, goto \ref{crit:enum:tx},
 \item leave lwC and destroy it.
 \end{enumerate}
 Our own experiments\ref{attach:httppayloads} show 1146B response payloads for 900B requests and 284B response payloads for 40B requests.
-Thus, \textbf{28 or 115 responses} fit into the standard initial 32KiB tx buffer of the FreeBSD TCP stack~\cite{fbsd11tcpsendspace}
-Assuming non-blocking reads for all request payloads\footnote{Requests are very short and likely pipelined.}, this means that session lengths of up to 28 or 115 requests per session are handled without any intermediate context switching.
+Thus, {28 (115) responses fit into the standard initial 32KiB tx buffer of the FreeBSD TCP stack~\cite{fbsd11tcpsendspace}
+Assuming non-blocking reads for all request payloads\footnote{Requests are very short and likely pipelined.}, this implies that that session lengths of up to 28 (115) requests per session are handled without any intermediate context switching.
 In reality though, both file and socket I/O are going to block, dramatically increasing the number of lwC switches compared to the presented application benchmarks.
 
-Fourth, the evaluation setup might have been network-bound, which  might have needlessly disrupted or distorted the measurements:
-The scalability test achieves a peak throughput of 180k req/sec for 40B and $\approx95k$ req/sec for 900B, which amounts to at least
+Fourth, we believe that the nginx scalability benchmark was operating close to the maximum network bandwidth of 1Gbit/s, which might have needlessly disrupted or distorted the measurements:
+With a peak throughput of $\sim95k$ req/sec for 900B and 180k req/sec for 40B, our experiments show 0.92 (0.5) Gbit/s response Ethernet traffic (see~\ref{attach:httppayloads}).
 % [GET/S] * [ETH_FRAME_SIZE]
-% (180000 * 350 byte ) in giga bit
 % (95000 * 1212byte ) in giga bit
-0.5 or 0.92 or Gbit/s response Ethernet traffic according to our experiments (ree~\ref{attach:httppayloads}).
-We recommend repeating the experiment with a 10 Gbit/s link to exclude\todo{ausschließen} any flow / congestion control issues.
+% (180000 * 350 byte ) in giga bit
+To exclude\todo{ausschließen} flow or congestion control issues, we recommend repeating the experiment with a 10 Gbit/s link.
 
 Fifth, the evaluation is performed on a machine with a tagged TLB --- untagged TLB systems are not measured.
 Given the envisioned use-case for lwCs is in server applications running in data centers, and the dominance of Intel in the server market, and the availibility of tagged TLBs on Intel CPUs since 2010\todo{cite wikipedia link},
@@ -635,14 +634,17 @@ However, such a requirement should be made explicit and justified through approp
 Sixth, the evaluation does not address the issue of TLB-tag exhaustion:
 since lwCs encourage the creation of many address spaces and rapid switching between them (see section~\ref{eval:apps}), a system might have fewer TLB tags available than active lwCs.
 For example, the Intel system used for the evaluation\todo{should give detailed hardware info in eval section} uses 12-bit wide TLB tags.
-This allows for at most $2^12=4096$ concurrent lwCs per CPU core before TLB tags need to be time-multiplexed on a single core or space-multiplexed between different cores.
+This allows for at most $2^{12}=4096$ concurrent lwCs per CPU core before TLB tags need to be time-multiplexed on a single core or space-multiplexed between different cores.
 Time-multiplexing necessarily implies TLB shootdowns and thus indirect performance overheads.
 Space-multiplexing requires tighter integration into the scheduler and necessarily comes with tradeoffs in work-conservation, fairness, etc.
-We believe that the \textit{mechanism} for TLB tag exhaustion must be addressed by the virtual memory (VM) system.
-But the lwC design likely breaks implicit assumptions of the VM system designers with regards to frequence of AS creation and switching.
-Thus, lwCs must provide an appropriate multiplexing and scheduling \textit{policy} and measure its effects in application-level benchmarks, also addressing fairness in multi-tenant systems (multi-user, jails, containers).
+The \textit{mechanism} for TLB tag exhaustion must be addressed by the virtual memory (VM) system.
+But the lwC design likely breaks implicit assumptions of the VM system designers with regards to frequency of AS creation and switching.
+Thus, the authors should provide an appropriate multiplexing and scheduling \textit{policy} and measure its effects in application-level benchmarks, also addressing fairness in multi-tenant systems (multi-user, jails, containers).
+Note that the benchmarking setup might not have been affected by TLB tag exhaustion because, if our aforementioned theory about never-blocking file and socket I/O holds, each lwC only lived for a very short time.
 
 \section{Conclusion}\label{conclusion}
+
+
 
 \onecolumn
 \section{Attachments}
