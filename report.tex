@@ -191,9 +191,9 @@ it still handles context switches post-interrupt, post-exception or when a threa
 The second argument to \lstinline{lwcSwitch} is an opaque value called \lstinline{arg} that is passed through to the code that starts executing in the target lwC after the switch is completed.
 \lstinline{arg} is made available in the target lwC as the return value \lstinline{carg} (we remember that execution always resumes at an lwC call site).
 The second return value \lstinline{caller} is the file descriptor of the lwC from where the switch was initiated.
-Having this information available in the switch target enables subroutine-style usage of \lstinline{lwcSwitch} because it enables switching back to any number of callers that are unknown at compile time.
 
-% do not mention coroutines here, will do that in the application
+Note that these three properties of lwcSwitch --- kernel-moderated control flow switching, address space switching, and argument passing --- enable the construction of lwCs that fulfill a server-like role within an application, providing independent security properties:
+as will be discussed in section~\ref{design:usage}, one lwC can provide some high-assurance service to other lwCs because it has a private address space and can enforce specific entry-points (\lstinline{lwcSwitch} call sites) where argument validation can be performed.
 
 \subsection{lwC Creation \& Destruction}\label{design:createdestroy}
 A process in an lwC system starts with a single thread that runs within a root lwC created by the OS.
@@ -502,7 +502,7 @@ The authors adapt a Zend-Framework web application template to use snapshot-and-
 snapshot-and-reload achieves \textbf{2.7x throughput} if the opcode cache is disabled and \textbf{1.3x throughput} with enabled opcode cache.\todo{need to explain more verbosely why performance gain?}
 Notably, this performance gain also comes with the security benefit of handling each request in a separate address space.
 
-\subsection{Application II: Apache \& nginx with Session Isolation}
+\subsection{Application II: Apache \& nginx with Session Isolation}\label{eval:web}
 The authors also integrate lwCs into the popular Apache and nginx web servers to protect TLS private keys and per-session data from attackers (\textit{session isolation}).
 The Apache variant extends the Apache pre-fork concurrency mode, which uses dedicated threads per active client connection:
 before a thread starts handling a new connection, it creates an lwC with private address space and file descriptor table and switches into it, thereby isolating potential attackers to a single thread in a dedicated lwC.
@@ -541,48 +541,102 @@ The authors claim that the OpenSSL modifications could be made such that they ar
 The evaluation in nginx shows \textbf{only 0.6\% lower throughput} for 10000 TLS handshakes with 24 concurrent clients compared to upstream OpenSSL.
 
 \section{Related Work}\label{rel}
+The evaluation demonstrates two use-cases for light-weight contexts: \textit{application compartmentalization} and process \textit{snapshot-and-rollback}.
+In this section, we are going to compare lwCs to related work for each of these use case.
+
+\subsection{Application Compartmentalization}
+Compartmentalization describes the decomposition of an application into isolated compartments that can provide independent security guarantees, as demonstrated in section~\ref{design:usage} and the web server benchmarks.
+The guiding principle is that of \textit{least privilege}, as formulated in \citeyear{principleofleastprivilege} in \cite{principleofleastprivilege}:
+\begin{displayquote}
+"Every program and every privileged user of the system should operate using the least amount of privilege necessary to complete the job."
+\end{displayquote}
+Within an application, this means that different subsystems might need to operate with different privilege and access rights to memory or global system state.
+
+\textbf{Programming language technology} provides the most constructive but least flexible approach to application compartmentalization:
+memory safe languages systematically elimiate the need for memory compartmentalization and
+runtime systems with sufficiently comprehensive access control systems eliminate the need for syscall filtering, private file descriptors, etc.
+Java is a good example for a memory safe language with a runtime manadatory access control mechanism (Java \lstinline{SecurityManager}).
+The obvious downside of language-specifc solutions is the implicit requirement to use that specific programming language and hence inapplicability to existing projects in other languages.
+Further, the trusted computing base (TCB) then encompasses the entire language runtime implementation which, in the case of Java, has been shown to have countless vulnerabilities and sandbox escapes over its lifetime.
+Light-weight contexts are language- and runtime-system-independent and have a significantly smaller TCB.
+\cite{javasecurity,bartel2018twentyyearsjavasecuritysandboxescape}
+
+Compartments could also be used to execute untrusted code within an application.
+A popular technique is the use of a byte-code verifier and interpreter (potentially also a just-in-time compiler), which defines a virtual machine on which untrusted code can execute.
+The general difference to the Java VM is a significantly reduced machine model, which simplifies implementation of the VM and potentially improves security.
+Web Assenbly or Linux kernel eBPF follow this model.
+In contrast, light-weight contexts allow native code execution without interpreter overhead.
+\cite{haas2017bringingwebassembly, lwnebpf}.
+
+\textbf{Operating system} designers have pursued privilege separation and compartmentalization models for decades:
+even very basic techniques such as virtual memory, multi-user systems with unprivileged users, and \lstinline{chroot} enable process-based privilege separation, e.g., in the OpenSSH server and the Chromium web browser.
+Whereas these approaches creatively re-combine existing kernel subsystems to achieve isolated address spaces or different privileges, light-weight contexts make the protection domain a first-class kernel abstraction.
+\cite{provos2003preventing, barth2008security}
+
+Microkernels such as Fiasco-OC and seL4 have pursued the more holisitc concept of object capability systems: 
+Starting from a root process with capabilities to all system resources, new processes must be constructed with an explicit list of access capabilities, which encompass address space, file system access rights, system call gates, etc.
+Like lwCs, the level of (static) privilege only decreases along the capability creation chain, but the requirement to explicitly list all requirements of a new process facilitates audits of the system architecture, compared to the default CoW sharing between lwCs parent and child.
+\cite{elphinstone2013l3}
+
+FreeBSD Capsicum can be described as a UNIX-like capability system based on file descriptors and the elimination of access to any global namespaces:
+after entering \textit{capability mode}, a process is limited to file-descriptor-relative system calls (\lstinline{openat} instead of \lstinline{open}), and inter-process communication through already open sockets and IPC handles.
+Decomposing an application into multiple processes in capability mode and connecting them through pipes then enables private address spaces, file descriptor tables, and system credentials as well as well-defined entry points \& protocols between components.
+As discussed in section\ref{design:syscallinterpos} and \ref{eval:web}, arbitrary policy checks on system calls require proxying the call through a separate processes, which introduces latency and CPU overhead avoided by lwC system call interposition.
+However, Capsicum retains some advantages over lwCs, such as the use of established IPC mechanisms and compatible libraries for communication between components, as opposed to \lstinline{lwcSwitch}.
+\cite{watson2010capsicum}
+
+The lwC authors cite the \textit{Wedge} system as related work.
+Wedge implements Linux kernel support for creating \textit{sthreads}, which work similarly to lwCs with regards to static resource sharing.
+Wedge avoids the forking semantics of \lstinline{lwcCreate}, following a "default-deny model" where all resources to be shared with a child must be explicitly listed.
+Notably, memory is not a resource in the lwC sense, but handled though \textit{tags}: all memory allocations are associated with a tag per compartment.
+Permissions to access data on the compartment-private heap is thus also expressed through tags being passed between \textit{sthreads}.
+\cite{bittau2008wedge}
+
+The \textit{Shreds} system is a hardware-based approach
+
+ARM memory domains.
+The CHERI project provides a hardware-implementation of object capabilities
 
 \begin{itemize}
-  \item Application Compartmentalization
+  \item Principle of least Privilege
+  
+  \item Language-Technology-Based
   \begin{itemize}
-    \item Principle of least Privilege
-    
-    \item Language-Technology-Based
-    \begin{itemize}
-      \item NaCL \& WASM
-      \item BPF \& eBPF
-      \item Software Fault Isolation
-      \item Memory-safe Runtime (Java, CLR?) %working title, need proper PL word for it
-    \end{itemize}
-    
-    \item OS-Based
-      \begin{itemize}
-        \item Capability Systems
-        \begin{itemize}
-          \item Fiasco-OC / seL4
-          \item FreeBSD Capsicum
-        \end{itemize}
-        \item Process-Based Privsep
-        \begin{itemize}
-          \item Provos, OpenSSH
-        \end{itemize}
-        \item Hybrids (isolation at some level)
-        \begin{itemize}
-          \item wedge
-          \item shreds (uses ARM memory domains)
-          \item \textbf{light weight contexts}
-        \end{itemize}
-      \end{itemize}
-
-    \item Hardware-Based
-    \begin{itemize}
-      \item CHERI
-    \end{itemize}
+    \item NaCL \& WASM
+    \item BPF \& eBPF
+    \item Software Fault Isolation
+    \item Memory-safe Runtime (Java, CLR?) %working title, need proper PL word for it
   \end{itemize}
   
-  \item Process Snapshotting \& Rollback
-  \item Session Isolation in CGI applications?
+  \item OS-Based
+    \begin{itemize}
+      \item Capability Systems
+      \begin{itemize}
+        \item Fiasco-OC / seL4
+        \item FreeBSD Capsicum
+      \end{itemize}
+      \item Process-Based Privsep
+      \begin{itemize}
+        \item Provos, OpenSSH
+        \item Chrome
+      \end{itemize}
+      \item Hybrids (isolation at some level)
+      \begin{itemize}
+        \item wedge
+        \item shreds (uses ARM memory domains)
+        \item \textbf{light weight contexts}
+      \end{itemize}
+    \end{itemize}
+
+  \item Hardware-Based
+  \begin{itemize}
+    \item CHERI
+  \end{itemize}
 \end{itemize}
+
+\subsection{Snapshot \& Rollback}
+enables conserving and reverting to application state via copy-on-write as shown in the PHP-FPM benchmark.
+TODO
 
 \section{Critique}\label{eval:crit}
 The light-weight context design is appealing on first glance due to
@@ -594,7 +648,7 @@ The light-weight context design is appealing on first glance due to
 However, we believe that the evaluation does not provide a substantiated argument for the practicalit of light-weight contexts.
 
 First, the \lstinline{lwcSwitch} micro-benchmark does not account for the indirect costs of address-space switching, specifically, the additional TLB pressure.
-These effects have been well-known for decades, e.g., in micro-kernel research\todo{cite one of the mkc-papers / aos papers on tlb pressure}  and implementation.
+These effects have been well-known for decades, e.g., in micro-kernel research  nd implementation. \cite{liedtke1997achievedipcperformance} 
 An evaluation should compare the effects of this indirect overhead against other sandboxing and privilege separation approaches.
 
 Second, we are dissatisfied with the chosen web-server benchmark metrics:
