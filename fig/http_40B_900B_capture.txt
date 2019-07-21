@@ -1,0 +1,32 @@
+No.     Time           Source                Destination           Protocol Length Info
+      4 0.014841       XXX.XXX.XXX.XX        YYY.Y.YY.YYY          HTTP     157    GET /40B HTTP/1.1
+
+Frame 4: 157 bytes on wire (1256 bits), 157 bytes captured (1256 bits)
+Transmission Control Protocol, Src Port: 44084, Dst Port: 80, Seq: 1, Ack: 1, Len: 91
+Hypertext Transfer Protocol
+
+No.     Time           Source                Destination           Protocol Length Info
+      5 0.029361       YYY.Y.YY.YYY          XXX.XXX.XXX.XX        HTTP     350    HTTP/1.1 200 OK 
+
+Frame 5: 350 bytes on wire (2800 bits), 350 bytes captured (2800 bits)
+Transmission Control Protocol, Src Port: 80, Dst Port: 44084, Seq: 1, Ack: 92, Len: 284
+Hypertext Transfer Protocol
+Data (40 bytes)
+
+
+No.     Time           Source                Destination           Protocol Length Info
+     14 4.606617       XXX.XXX.XXX.XX        YYY.Y.YY.YYY          HTTP     158    GET /900B HTTP/1.1
+
+Frame 14: 158 bytes on wire (1264 bits), 158 bytes captured (1264 bits)
+Transmission Control Protocol, Src Port: 44086, Dst Port: 80, Seq: 1, Ack: 1, Len: 92
+Hypertext Transfer Protocol
+
+No.     Time           Source                Destination           Protocol Length Info
+     15 4.621203       YYY.Y.YY.YYY          XXX.XXX.XXX.XX        HTTP     1212   HTTP/1.1 200 OK 
+
+Frame 15: 1212 bytes on wire (9696 bits), 1212 bytes captured (9696 bits)
+Transmission Control Protocol, Src Port: 80, Dst Port: 44086, Seq: 1, Ack: 93, Len: 1146
+Hypertext Transfer Protocol
+Data (900 bytes)
+
+
