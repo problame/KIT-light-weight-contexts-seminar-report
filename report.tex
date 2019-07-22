@@ -75,18 +75,20 @@
 %The result is a narrow, auditable interface.
 %
 
-Application Compartmentalization as in seminar presentation. Ignore Session Isolation \& Snapshots?
+Modern application architecture commonly emphasizes modularization and information hiding to achieve testability, maintainability, exchangability, and reusability.
+The extreme of reusability are large libraries that are used by multiple independent applications.
+Type systems, packaging hierarchies and visibility features many programming languages can help the enforcement of said principles in large applications.
 
-Line of throught:
+However, there is a chasm between the way we architect our software and the way we execute it at runtime:
+whereas the programming language can enforce strict separation at compile time,
+the program binary or interpreted script executes in a single protection domain --- a process ---
+with shared address space, shared file descriptor table and a shared system-level privilege (user id, group id, capabilities(SYS\_CAP\_), system call) between all modules of a program.
+Consequently, an exploitable vulnerability in a single module does not only compromise that module but the entire application.
 
-Modern app architecture commonly emphasizes modularization \& information hiding (Parnas) to achieve testability, maintainability, exchangability, reusability.
-The extreme of reusability are large libraries used by multiple independent applications.
-
-However, chasm between development time and runtime:
-PLs enforce encapsulation at compile time, but the resulting program runs in a single protection domain, i.e. a process, at runtime:
-shared address space with shared heap, shared file descriptor table, shared system-level privilege (user id, group id, capabilities(SYS\_CAP\_), system call) between all modules of the program.
-Consequently, an exploitable vulnerability in a single module not only compromises that module but the entire application.
-
+Language technology provides fairly holistic solutions to this problem through memory-safe languages, runtime ACL systems, etc.
+However, performance concerns, lack of interoperability between different source languages within a process, and legacy code bases shift the search for better runtime safety guarantees to the next lower layer: the operating system.
+Decomposition into privilege-separated processes is a long-standing technique.
+% TODO 
 The generic solution: decomponsition of the application into smaller units that execute in separate protection domains.
 Generic questions / problems / tradeoffs:
 \begin{itemize}
@@ -542,9 +544,8 @@ The evaluation in nginx shows \textbf{only 0.6\% lower throughput} for 10000 TLS
 
 \section{Related Work}\label{rel}
 The evaluation demonstrates two use-cases for light-weight contexts: \textit{application compartmentalization} and process \textit{snapshot-and-rollback}.
-In this section, we are going to compare lwCs to related work in the domain of each use case.
+For the sake of brevity, we are going to limit ourselves to an investigation of related work in the former category.
 
-\subsection{Application Compartmentalization}
 Compartmentalization describes the decomposition of an application into isolated compartments that can provide independent security guarantees, as demonstrated in section~\ref{design:usage} and the web server benchmarks (section~\ref{eval:web}).
 The guiding principle is that of \textit{least privilege}, as formulated in \citeyear{principleofleastprivilege} in \cite{principleofleastprivilege}:~%
 \begin{displayquote}
@@ -643,10 +644,6 @@ The mandatory use of a custom compiler and mandatory availability of source code
 %     \item CHERI
 %   \end{itemize}
 % \end{itemize}
-
-\subsection{Snapshot \& Rollback}
-enables conserving and reverting to application state via copy-on-write as shown in the PHP-FPM benchmark.
-TODO
 
 \section{Critique}\label{eval:crit}
 The light-weight context design is appealing on first glance due to
