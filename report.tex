@@ -542,97 +542,107 @@ The evaluation in nginx shows \textbf{only 0.6\% lower throughput} for 10000 TLS
 
 \section{Related Work}\label{rel}
 The evaluation demonstrates two use-cases for light-weight contexts: \textit{application compartmentalization} and process \textit{snapshot-and-rollback}.
-In this section, we are going to compare lwCs to related work for each of these use case.
+In this section, we are going to compare lwCs to related work in the domain of each use case.
 
 \subsection{Application Compartmentalization}
-Compartmentalization describes the decomposition of an application into isolated compartments that can provide independent security guarantees, as demonstrated in section~\ref{design:usage} and the web server benchmarks.
-The guiding principle is that of \textit{least privilege}, as formulated in \citeyear{principleofleastprivilege} in \cite{principleofleastprivilege}:
+Compartmentalization describes the decomposition of an application into isolated compartments that can provide independent security guarantees, as demonstrated in section~\ref{design:usage} and the web server benchmarks (section~\ref{eval:web}).
+The guiding principle is that of \textit{least privilege}, as formulated in \citeyear{principleofleastprivilege} in \cite{principleofleastprivilege}:~%
 \begin{displayquote}
 "Every program and every privileged user of the system should operate using the least amount of privilege necessary to complete the job."
 \end{displayquote}
 Within an application, this means that different subsystems might need to operate with different privilege and access rights to memory or global system state.
 
-\textbf{Programming language technology} provides the most constructive but least flexible approach to application compartmentalization:
-memory safe languages systematically elimiate the need for memory compartmentalization and
-runtime systems with sufficiently comprehensive access control systems eliminate the need for syscall filtering, private file descriptors, etc.
+\textbf{Programming language technology} provides the most constructive but least flexible approach to application compartmentalization.
+Memory safe languages systematically elimiate the need for memory compartmentalization and unintended remote code execution.
+Formal analysis can be used to prove information flow rules between different components of an application.
+Runtime systems with sufficiently comprehensive access control systems eliminate the need for syscall filtering, private file descriptors, etc.
 Java is a good example for a memory safe language with a runtime manadatory access control mechanism (Java \lstinline{SecurityManager}).
-The obvious downside of language-specifc solutions is the implicit requirement to use that specific programming language and hence inapplicability to existing projects in other languages.
+The downside of language-specifc solutions is the implicit requirement to use that specific programming language and hence inapplicability to existing projects in other languages.
 Further, the trusted computing base (TCB) then encompasses the entire language runtime implementation which, in the case of Java, has been shown to have countless vulnerabilities and sandbox escapes over its lifetime.
 Light-weight contexts are language- and runtime-system-independent and have a significantly smaller TCB.
 \cite{javasecurity,bartel2018twentyyearsjavasecuritysandboxescape}
 
-Compartments could also be used to execute untrusted code within an application.
-A popular technique is the use of a byte-code verifier and interpreter (potentially also a just-in-time compiler), which defines a virtual machine on which untrusted code can execute.
+\textbf{Byte-code virtual machines} are often used to execute untrusted code in a sandbox:
+the is either verified ahead of time and then compiled to machine code, or interpreted and security-checked per instruction.
 The general difference to the Java VM is a significantly reduced machine model, which simplifies implementation of the VM and potentially improves security.
-Web Assenbly or Linux kernel eBPF follow this model.
-In contrast, light-weight contexts allow native code execution without interpreter overhead.
+Web Assembly or Linux kernel eBPF implement variants of this (simplified) concept.
+In contrast, light-weight contexts allow native code execution without interpreter or verifier overhead.
 \cite{haas2017bringingwebassembly, lwnebpf}.
 
-\textbf{Operating system} designers have pursued privilege separation and compartmentalization models for decades:
-even very basic techniques such as virtual memory, multi-user systems with unprivileged users, and \lstinline{chroot} enable process-based privilege separation, e.g., in the OpenSSH server and the Chromium web browser.
+\textbf{Operating system} designers have long pursued privilege separation and compartmentalization models:
+even very basic established techniques like virtual memory, multi user systems, file-system permissions and \lstinline{chroot} enable effective process-based privilege separation, e.g., in the OpenSSH server and the Chromium web browser.
 Whereas these approaches creatively re-combine existing kernel subsystems to achieve isolated address spaces or different privileges, light-weight contexts make the protection domain a first-class kernel abstraction.
 \cite{provos2003preventing, barth2008security}
 
-Microkernels such as Fiasco-OC and seL4 have pursued the more holisitc concept of object capability systems: 
-Starting from a root process with capabilities to all system resources, new processes must be constructed with an explicit list of access capabilities, which encompass address space, file system access rights, system call gates, etc.
-Like lwCs, the level of (static) privilege only decreases along the capability creation chain, but the requirement to explicitly list all requirements of a new process facilitates audits of the system architecture, compared to the default CoW sharing between lwCs parent and child.
+Microkernels such as Fiasco-OC and seL4 have pursued the more holisitc concept of \textbf{object capability systems}:
+capabilities are unforgeable tokens that represent the right to access (invoke) a resource (system call).
+Starting from a root process with capabilities to all system resources, new processes must be constructed with an explicit list of access capabilities, encompassing address space, file system access rights, system call gates.
+Like lwCs, the level of (static) privilege only decreases along the capability creation chain, but we believe that the requirement to explicitly list all requirements of a new process facilitates audits of the system architecture, compared to the default CoW sharing between lwCs parent and child.
 \cite{elphinstone2013l3}
 
-FreeBSD Capsicum can be described as a UNIX-like capability system based on file descriptors and the elimination of access to any global namespaces:
+\textbf{FreeBSD Capsicum} is a technology described as "practical capabilities for UNIX":
 after entering \textit{capability mode}, a process is limited to file-descriptor-relative system calls (\lstinline{openat} instead of \lstinline{open}), and inter-process communication through already open sockets and IPC handles.
-Decomposing an application into multiple processes in capability mode and connecting them through pipes then enables private address spaces, file descriptor tables, and system credentials as well as well-defined entry points \& protocols between components.
+Access to any kind of global namespace (filesystem, inet, \dots) is prohibited, thereby promoting file descriptors to capabilities.
+Consequently, compartmentalization can be achieved by decomposing an application into multiple processes in capability mode and connecting them through pipes.
+This technique enables private address spaces, file descriptor tables and system credential per logical application component and limits communication to well-defined entry-points via IPC.
 As discussed in section\ref{design:syscallinterpos} and \ref{eval:web}, arbitrary policy checks on system calls require proxying the call through a separate processes, which introduces latency and CPU overhead avoided by lwC system call interposition.
 However, Capsicum retains some advantages over lwCs, such as the use of established IPC mechanisms and compatible libraries for communication between components, as opposed to \lstinline{lwcSwitch}.
 \cite{watson2010capsicum}
 
-The lwC authors cite the \textit{Wedge} system as related work.
-Wedge implements Linux kernel support for creating \textit{sthreads}, which work similarly to lwCs with regards to static resource sharing.
+%The CHERI project implements a capability model in hardware...
+
+The lwC authors cite the \textbf{Wedge} system as related work.
+Wedge implements Linux kernel support for creating \textit{sthreads}, which behave similarly to lwCs with regards to static resource sharing.
 Wedge avoids the forking semantics of \lstinline{lwcCreate}, following a "default-deny model" where all resources to be shared with a child must be explicitly listed.
 Notably, memory is not a resource in the lwC sense, but handled though \textit{tags}: all memory allocations are associated with a tag per compartment.
 Permissions to access data on the compartment-private heap is thus also expressed through tags being passed between \textit{sthreads}.
+Wedge requires modification of all memory allocations in a program if sources are available or the use of linker-based compatibility modes for binary-only libraries.
+Light-weight context appear to be less invase with regards to program modification and do not treat memory differently from\todo{preposition} other resources.
 \cite{bittau2008wedge}
 
-The \textit{Shreds} system is a hardware-based approach
+The \textbf{Shreds} system combines a variant of Control-Flow Integrity and ARM Memory Domains to implement private memory and hijacking protection for small code blocks.
+Developers mark such code blocks with runtime calls and use Shreds memory allocation functions within it.
+A customized compiler then generates control-flow integrity checks for the marked code blocks.
+A kernel module then verifies the integrity of a shred on entry and maps the shred-private memory pool for the duration of execution within the shred.
+ARM Memory Domains are the vehicle to implement Shreds on ARM with acceptable performance costs, but make the solution less portable than lwCs, which only require standard memory virtualization (see our critique in section\ref{eval:crit}).
+The mandatory use of a custom compiler and mandatory availability of source code for all Shreds is also more inhibiting to adoption than lwCs.
+\cite{chen2016shreds,abadi2009control,armmemorydomains}
 
-ARM memory domains.
-The CHERI project provides a hardware-implementation of object capabilities
-
-\begin{itemize}
-  \item Principle of least Privilege
+% \begin{itemize}
+%   \item Principle of least Privilege
   
-  \item Language-Technology-Based
-  \begin{itemize}
-    \item NaCL \& WASM
-    \item BPF \& eBPF
-    \item Software Fault Isolation
-    \item Memory-safe Runtime (Java, CLR?) %working title, need proper PL word for it
-  \end{itemize}
+%   \item Language-Technology-Based
+%   \begin{itemize}
+%     \item NaCL \& WASM
+%     \item BPF \& eBPF
+%     \item Software Fault Isolation
+%     \item Memory-safe Runtime (Java, CLR?) %working title, need proper PL word for it
+%   \end{itemize}
   
-  \item OS-Based
-    \begin{itemize}
-      \item Capability Systems
-      \begin{itemize}
-        \item Fiasco-OC / seL4
-        \item FreeBSD Capsicum
-      \end{itemize}
-      \item Process-Based Privsep
-      \begin{itemize}
-        \item Provos, OpenSSH
-        \item Chrome
-      \end{itemize}
-      \item Hybrids (isolation at some level)
-      \begin{itemize}
-        \item wedge
-        \item shreds (uses ARM memory domains)
-        \item \textbf{light weight contexts}
-      \end{itemize}
-    \end{itemize}
-
-  \item Hardware-Based
-  \begin{itemize}
-    \item CHERI
-  \end{itemize}
-\end{itemize}
+%   \item OS-Based
+%     \begin{itemize}
+%       \item Capability Systems
+%       \begin{itemize}
+%         \item Fiasco-OC / seL4
+%         \item FreeBSD Capsicum
+%       \end{itemize}
+%       \item Process-Based Privsep
+%       \begin{itemize}
+%         \item Provos, OpenSSH
+%         \item Chrome
+%       \end{itemize}
+%       \item Hybrids (isolation at some level)
+%       \begin{itemize}
+%         \item wedge
+%         \item shreds (uses ARM memory domains)
+%         \item \textbf{light weight contexts}
+%       \end{itemize}
+%     \end{itemize}
+%   \item Hardware-Based
+%   \begin{itemize}
+%     \item CHERI
+%   \end{itemize}
+% \end{itemize}
 
 \subsection{Snapshot \& Rollback}
 enables conserving and reverting to application state via copy-on-write as shown in the PHP-FPM benchmark.
