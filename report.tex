@@ -56,9 +56,14 @@
 \maketitle
 
 \begin{abstract}
-  
-
-
+Contemporary operating systems define processes as an execution environment for threads, consisting of a shared address space, file descriptor table, and system-level privilege.
+The low overhead of threads compared to processes enables more efficient server applications, but prohibits meaningful memory isolation and privilege separation between potentially malicious requests.\\
+Light-weight contexts (lwCs) provide an OS abstraction for privilege separation within a process by decoupling execution environment \& logical control flow from process \& threads:
+an lwC is comprised of an address space, file descriptor table and system credential, as well as one logical control flow per thread.
+By allowing threads to rapidly switch between lwCs, pass arguments, and selectively share resources, compartmentializing requests or code modules becomes possible.\\
+In this report, we summarize the original lwC design and perform a security analysis, including a threat model and example use case.
+We proceed with a discussion of the authors' evaluation of lwCs on FreeBSD 11.0 in PHP-FPM and the Apache \& nginx web servers.
+We conclude with a critique of the design \& evaluation, pointing out substantial flaws and open questions with regards to real-world performance.
 \end{abstract}
 
 \section{Introduction}\label{intro}
