@@ -1,4 +1,4 @@
-\documentclass[10pt,twocolumn,letter]{article}
+\documentclass[10pt,twocolumn,a4]{article}
 \usepackage{styles/usenix-style}
 \usepackage{styles/ka-style}
 \usepackage{xspace,ifthen,graphicx,listings}
@@ -75,33 +75,51 @@
 %The result is a narrow, auditable interface.
 %
 
-Modern application architecture commonly emphasizes modularization and information hiding to achieve testability, maintainability, exchangability, and reusability.
+Modern application architecture emphasizes modularization and information hiding to achieve testability, maintainability, exchangability, and reusability.
 The extreme of reusability are large libraries that are used by multiple independent applications.
-Type systems, packaging hierarchies and visibility features many programming languages can help the enforcement of said principles in large applications.
+Type systems, packaging hierarchies, and visibility features in many programming languages can help to enforce said principles in large applications.
 
-However, there is a chasm between the way we architect our software and the way we execute it at runtime:
-whereas the programming language can enforce strict separation at compile time,
-the program binary or interpreted script executes in a single protection domain --- a process ---
-with shared address space, shared file descriptor table and a shared system-level privilege (user id, group id, capabilities(SYS\_CAP\_), system call) between all modules of a program.
-Consequently, an exploitable vulnerability in a single module does not only compromise that module but the entire application.
+However, there is a chasm between the way we architect software and the way it is executed it at runtime:
+whereas the programming language enforces strict separation between modules on the type level at compile time,
+the program binary or interpreted script executes in a single protection domain --- the process ---
+with shared address space, file descriptor table and system-level privilege for all modules.
+Consequently, an exploitable vulnerability in a single logical module can be used to compromise the entire application, extract user data from application memory or serve as a basis for further privilege escalation.
 
-Language technology provides fairly holistic solutions to this problem through memory-safe languages, runtime ACL systems, etc.
-However, performance concerns, lack of interoperability between different source languages within a process, and legacy code bases shift the search for better runtime safety guarantees to the next lower layer: the operating system.
-Decomposition into privilege-separated processes is a long-standing technique.
-% TODO 
-The generic solution: decomponsition of the application into smaller units that execute in separate protection domains.
-Generic questions / problems / tradeoffs:
-\begin{itemize}
-  \item threat model
-  \item definition of what makes a protection domain
-  \item how to integrate the decomposition into different protection domains into the PL / runtime?
-  \item applicability to existing PLs \& code bases
-  \item how to maintain application performance
-\end{itemize}
+Language technology provides holistic solutions to this problem through memory-safe languages, runtime ACL systems, etc.
+However, performance concerns, lack of interoperability between different source languages within a process, and legacy code bases shift the search for better runtime safety guarantees toward the next lower layer of the software stack:
+Can the operating system provide an efficient abstraction to maintain some of the aforementioned compile-time isolation at runtime?
+
+Light-weight contexts (lwCs) are such an OS-based solution that allows for multiple protection domains (\textit{contexts}) within the same process:
+An lwC is comprised of an address space, file descriptor table and system credential (privilege level).
+In contrast to the implicit execution environment provided by a process, lwCs are a first-class OS abstraction and explicitly tangible from user space as file descriptors.
+
+In the proposed design, threads no longer execute a single logical control flow, but have one \textit{per lwC}.
+A new system call allows for rapid voluntary switching to a different lwC: apart from resuming the thread's target lwC logical control flow, the system call also installs the target lwC's address space, file descriptor table and system credential for the current thread.
+Argument passing on switch then enables the decomposition of an application's functionality into multiple lwCs that can provide independent security guarantees.
+
+Further, the lwC design describes the mechanisms for creating lwCs within a process which allows for selective sharing of memory, file descriptors and privilege level.
+Dynamic sharing of these resources is also supported through a capability system built on top of lwC file descriptors.
+Privelege escalation through out-of-process channels can be prevented using syscall interposition, which enables efficient program-defined policy enforcement for syscalls made by an lwC.
+
+The authors provide an evaluation of their implementation in FreeBSD 11.0, focussing on the enhancement of inter-request isolation and TLS private key protection in web servers.
+Whereas the presented results are impressive at first glance, we find that the evaluation lacks key metrics for the presented use cases and does not sufficiently investigate obvious performance-constraints of the design.
+
+% Generic questions / problems / tradeoffs:
+% \begin{itemize}
+  % \item threat model
+  % \item definition of what makes a protection domain
+  % \item how to integrate the decomposition into different protection domains into the PL / runtime?
+  % \item applicability to existing PLs \& code bases
+  % \item how to maintain application performance
+% \end{itemize}
 
 \subsection{Structure of this Report}
-\blindtext\todo{fix blindtext}
-
+This report provides a summary of the original light-weight context paper enriched with several insights drawn from the author's open source implementation.
+Section~\ref{design} provides an overview of the design and system API exposed by lwCs,
+followed by a brief security analsys in section~\ref{security}, which also includes an example use case for\todo{of?} lwCs in application security hardening.
+We briefly discuss the author's implementation of lwCs in FreeBSD 11.0 in section~\ref{impl} and then proceed with a discusion of the evaluation results of the original paper (section~\ref{eval}).
+Subsequently, we survey other approaches to application compartmentalization in section~\ref{rel}.
+Finally, we provide an elaborate critique of the design \& evaluation in section~\ref{eval:crit}.
 
 \section{Design}\label{design}
 We find it most helpful to develop the general idea of \textit{light-weight Contexts} (lwCs) by starting from the canonical abstraction of processes \& threads, as visualized in figure~\ref{design:fig:canonicalprocthreads}.
@@ -373,7 +391,7 @@ The authors do not specify the behavior for file descriptor tables and credentia
 \end{figure}
 
 
-\section{Security Analysis}\label{design:threat}
+\section{Security Analysis}\label{security}
 
 In this section, we define a threat model for lwCs and assess how the design meets the canonical information security properties of \textit{confidentiality}, \textit{integrity} and \textit{availability}\cite{ciagoals}.
 
