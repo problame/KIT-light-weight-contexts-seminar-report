@@ -60,7 +60,7 @@ Contemporary operating systems define processes as an execution environment for 
 The low overhead of threads compared to processes enables more efficient server applications, but prohibits meaningful memory isolation and privilege separation between potentially malicious requests.\\
 Light-weight contexts (lwCs) provide an OS abstraction for privilege separation within a process by decoupling execution environment \& logical control flow from process \& threads:
 an lwC is comprised of an address space, file descriptor table and system credential, as well as one logical control flow per thread.
-By allowing threads to rapidly switch between lwCs, pass arguments, and selectively share resources, compartmentializing requests or code modules becomes possible.\\
+By allowing threads to rapidly switch between lwCs, pass arguments, and selectively share resources, compartmentalizing requests or code modules becomes possible.\\
 In this report, we summarize the original lwC design and perform a security analysis, including a threat model and example use case.
 We proceed with a discussion of the authors' evaluation of lwCs on FreeBSD 11.0 in PHP-FPM and the Apache \& nginx web servers.
 We conclude with a critique of the design \& evaluation, pointing out substantial flaws and open questions with regards to real-world performance.
@@ -106,9 +106,9 @@ Argument passing on switch then enables the decomposition of an application's fu
 
 Further, the lwC design describes the mechanisms for creating lwCs within a process which allows for selective sharing of memory, file descriptors and privilege level.
 Dynamic sharing of these resources is also supported through a capability system built on top of lwC file descriptors.
-Privelege escalation through out-of-process channels can be prevented using syscall interposition, which enables efficient program-defined policy enforcement for syscalls made by an lwC.
+Privilege escalation through out-of-process channels can be prevented using syscall interposition, which enables efficient program-defined policy enforcement for syscalls made by an lwC.
 
-The authors provide an evaluation of their implementation in FreeBSD 11.0, focussing on the enhancement of inter-request isolation and TLS private key protection in web servers.
+The authors provide an evaluation of their implementation in FreeBSD 11.0, focusing on the enhancement of inter-request isolation and TLS private key protection in web servers.
 Whereas the presented results are impressive at first glance, we find that the evaluation lacks key metrics for the presented use cases and does not sufficiently investigate obvious performance-constraints of the design.
 
 % Generic questions / problems / tradeoffs:
@@ -123,8 +123,8 @@ Whereas the presented results are impressive at first glance, we find that the e
 \subsection{Structure of this Report}
 This report provides a summary of the original light-weight context paper enriched with several insights drawn from the author's open source implementation.
 Section~\ref{design} provides an overview of the design and system API exposed by lwCs,
-followed by a brief security analsys in section~\ref{security}, which also includes an example use case for\todo{of?} lwCs in application security hardening.
-We briefly discuss the author's implementation of lwCs in FreeBSD 11.0 in section~\ref{impl} and then proceed with a discusion of the evaluation results of the original paper (section~\ref{eval}).
+followed by a brief security analysis in section~\ref{security}, which also includes an example use case for\todo{of?} lwCs in application security hardening.
+We briefly discuss the author's implementation of lwCs in FreeBSD 11.0 in section~\ref{impl} and then proceed with a discussion of the evaluation results of the original paper (section~\ref{eval}).
 Subsequently, we survey other approaches to application compartmentalization in section~\ref{rel}.
 Finally, we provide an elaborate critique of the design \& evaluation in section~\ref{eval:crit}.
 
@@ -224,7 +224,7 @@ as will be discussed in section~\ref{design:usage}, one lwC can provide some hig
 
 \subsection{lwC Creation \& Destruction}\label{design:createdestroy}
 A process in an lwC system starts with a single thread that runs within a root lwC created by the OS.
-This design enables backwards binary-compatiblity with the exception that the root lwC file descriptor is a well-known number analogous to those for stdio.
+This design enables backwards binary-compatibility with the exception that the root lwC file descriptor is a well-known number analogous to those for stdio.
 
 New lwCs can then be created by threads using the \lstinline{lwcCreate} system call:
 
@@ -276,7 +276,7 @@ the \lstinline{lwcCreate}ing thread will appear return "a second time" from that
 Additionally, the \lstinline{new} contains the lwC descriptor of the creator lwC.
 The behavior in the creating thread is thus well-defined.
 Other threads could be at random points in their logical control flow when being snapshotted, resulting in undefined behavior after the switch.\todo{obvious?}
-Multithreaded forking is a well-known problem, \todo{citation} and the authors recommend applications to use barrier-synchronization with the creator.\todo{cite}
+Multi-threaded forking is a well-known problem, \todo{citation} and the authors recommend applications to use barrier-synchronization with the creator.\todo{cite}
 However, it is unclear to us how the \lstinline{caller} and \lstinline{carg} return values are accessible without inline-assembly or language support for non-creator threads.\todo{check}
 
 Finally, it should be noted that a new lwC only stores control flow states for the threads that existed at the time of its creation:
@@ -368,7 +368,7 @@ Consequently, each thread must have a separate signal mask per lwC.\todo{verify 
 \subsection{Forking \& Exit}
 A forked process inherits the parent's lwCs.
 However, only the forking thread exists in the child process, presumably due to POSIX compliance\cite{forkmultithread}. %read do_fork, which calls copy_snaps
-Shared memory, either through resource-specifiers on \lstinline{lwcCreate} or \lstinline{lwcOverlay} or through \lstinline{mmap(..., MAP_SHARED)} stays shared accross forks.
+Shared memory, either through resource-specifiers on \lstinline{lwcCreate} or \lstinline{lwcOverlay} or through \lstinline{mmap(..., MAP_SHARED)} stays shared across forks.
 The authors do not specify the behavior for file descriptor tables and credential; we assume unmodified fork semantics per lwC.
 
 \subsection{Summary}
@@ -410,7 +410,7 @@ monolithic OS kernel,
 any user space processes able to influence the execution \& environment of the lwC-process,
 and any user space code that runs before \lstinline{main} starts executing.
 Once \lstinline{main} starts executing, we assume an attacker who is able to hijack control flow and execute arbitrary code in user-mode in the currently established execution context, i.e., the current lwC.
-Specifically, an attacker may access any mapped memory through unprivilieged instructions and invoke any system call, including lwC management calls, and attempt privilege escalation directly or indirectly by invoking said system calls.
+Specifically, an attacker may access any mapped memory through unprivileged instructions and invoke any system call, including lwC management calls, and attempt privilege escalation directly or indirectly by invoking said system calls.
 
 \textbf{Resource Mappings}\hspace{1em}
 An lwC consists of resource mappings for the three resource kinds address space, file descriptor table and credential.
@@ -454,7 +454,7 @@ We consider an attacker who exploits a vulnerability in the image processing lib
 in an uncompartmentalized design, a successful attacker can read the entire process's memory to extract the private key of the TLS key pair or access other users' images from other requests.
 Both \textit{private key confidentiality} as well as \textit{client session isolation} are compromised.
 
-In contast, an lwC-enabled design loads the TLS private key into the root lwC and waits for connections.
+In contrast, an lwC-enabled design loads the TLS private key into the root lwC and waits for connections.
 For each new connection, it creates a worker lwC with private copy of the root lwC's address space and file descriptor table and switches into it.
 After performing the TLS hand-shake, it erases the private key from the worker address space and, only then, starts executing the riskier image processing code.
 A successful attacker now does not have access to the private key and is limited to the socket representing their own connection, as well as their own request data.
@@ -472,7 +472,7 @@ A visualization of the two approaches is given in figure~\ref{design:usage:appar
 
 Note that we have constructed a simplified example where requests can be handled in full isolation.
 In practice, some sharing will be required, e.g., for global statistics, a database connection pool, logging services, etc.
-In an lwC-compartmentalized design, these components would exectute in separate lwCs and be made accessible to the worker lwCs via shared memory, \lstinline{lwcSwitch}, \lstinline{lwcOverlay} or traditional IPC mechanisms.
+In an lwC-compartmentalized design, these components would execute in separate lwCs and be made accessible to the worker lwCs via shared memory, \lstinline{lwcSwitch}, \lstinline{lwcOverlay} or traditional IPC mechanisms.
 
 Note further that we have not discussed the concurrency model of \appname: both threaded and event-driven models are possible, as will be shown in the evaluation (section~\ref{eval}).
 
@@ -490,7 +490,7 @@ The major changes to the kernel consist of:
 \end{itemize}
 
 User-space support for lwCs is provided through a C~library containing syscall wrappers and a synchronized hash-table that enables key-value sharing across lwCs.
-The authors also provide a PHP extension that makes the lwC API accessible from scripts, which is requried for the evaluation.~\cite{lwclibsrepo}
+The authors also provide a PHP extension that makes the lwC API accessible from scripts, which is required for the evaluation.~\cite{lwclibsrepo}
 
 \section{Evaluation}\label{eval}
 The authors evaluate their implementation using micro-benchmarks to determine the primitive operations' latency
@@ -501,7 +501,7 @@ The micro-benchmarks first measure \lstinline{lwcSwitch} latency with regular co
 While not explicitly stated, we assume that the switch is between lwCs with \textit{different} address spaces.
 The mechanism used to measure regular context switch latency is a standard POSIX semaphore.
 
-The latency of lwC creation and destruction is only explored cummutatively: creating and immediately destroying a single lwC takes $87.7\mu s \approx 233282$ cycles on the evaluation machine. %(87.7*10^-6) * 2.66*10^9 = 233282
+The latency of lwC creation and destruction is only explored cumulatively: creating and immediately destroying a single lwC takes $87.7\mu s \approx 233282$ cycles on the evaluation machine. %(87.7*10^-6) * 2.66*10^9 = 233282
 However, the authors do not provide a meaningful baseline, e.g., the latency of a forking and immediately exiting in the child.
 An extended version of this micro-benchmark is also used to argue that the direct run-time overhead \textit{within} an lwC is limited to CoW faults.
 However, the indirect cost of multiple address spaces (e.g. increased TLB pressure) is neither considered nor evaluated.
@@ -546,7 +546,7 @@ Pseudocode for both Apache and nginx modifications is provided in figure~\ref{ev
 \end{lstlisting}
 
 The first set of benchmarks measures \textit{throughput} of GET requests for a \textit{single 45 byte document} at a constant number of concurrent clients.
-The authors perform the experiment for different \textit{session lenghts}, i.e., the number of requests sent over a single connection using HTTP keep-alive.
+The authors perform the experiment for different \textit{session lengths}, i.e., the number of requests sent over a single connection using HTTP keep-alive.
 For Apache, the lwC modifications exhibit significantly worse throughput for short sessions than stock pre-fork mode ($\ge80\%$ lower throughput).
 16-request sessions, which we consider generous for highly interactive web applications, still exhibit $\sim 16\%$ lower throughput.
 For nginx, performance implications are much less severe, with at most 22\% lower throughput for four-request sessions and at $\sim 6\%$ lower throughput at 16-request sessions.
@@ -555,8 +555,8 @@ However, this theory does not explain why nginx throughput is less affected, bec
 
 The authors also conduct a \textit{scalability} experiment for nginx:
 at a fixed session length of 256 requests, for 45 byte and 900 byte documents, the total throughput is measured for different numbers \todo{counts?} of concurrent clients.
-For up to 6500 concurrent clients, there is no significant difference bewteen upstream nginx and lwC nginx.
-For the 45 byte experiment, higher concurrency correlates with higher standard deviation and at most 19\% lower mean througput.
+For up to 6500 concurrent clients, there is no significant difference between upstream nginx and lwC nginx.
+For the 45 byte experiment, higher concurrency correlates with higher standard deviation and at most 19\% lower mean throughput.
 900 byte requests degrade more gracefully, with up to 10\% lower mean throughput at \~19500 concurrent clients.
 The authors explain the sudden drop in performance at 6500 clients with CPU-bound behavior of an interrupt handler thread, but do not provide details on the network hardware or driver which likely caused this problem.
 It is conceivable that the additional CPU time required by lwcSwitch causes the steeper drop in throughput for lwC-nginx.
@@ -579,11 +579,11 @@ The guiding principle is that of \textit{least privilege}, as formulated in \cit
 Within an application, this means that different subsystems might need to operate with different privilege and access rights to memory or global system state.
 
 \textbf{Programming language technology} provides the most constructive but least flexible approach to application compartmentalization.
-Memory safe languages systematically elimiate the need for memory compartmentalization and unintended remote code execution.
+Memory safe languages systematically eliminate the need for memory compartmentalization and unintended remote code execution.
 Formal analysis can be used to prove information flow rules between different components of an application.
 Runtime systems with sufficiently comprehensive access control systems eliminate the need for syscall filtering, private file descriptors, etc.
-Java is a good example for a memory safe language with a runtime manadatory access control mechanism (Java \lstinline{SecurityManager}).
-The downside of language-specifc solutions is the implicit requirement to use that specific programming language and hence inapplicability to existing projects in other languages.
+Java is a good example for a memory safe language with a runtime mandatory access control mechanism (Java \lstinline{SecurityManager}).
+The downside of language-specific solutions is the implicit requirement to use that specific programming language and hence inapplicability to existing projects in other languages.
 Further, the trusted computing base (TCB) then encompasses the entire language runtime implementation which, in the case of Java, has been shown to have countless vulnerabilities and sandbox escapes over its lifetime.
 Light-weight contexts are language- and runtime-system-independent and have a significantly smaller TCB.
 \cite{javasecurity,bartel2018twentyyearsjavasecuritysandboxescape}
@@ -600,7 +600,7 @@ even very basic established techniques like virtual memory, multi user systems, 
 Whereas these approaches creatively re-combine existing kernel subsystems to achieve isolated address spaces or different privileges, light-weight contexts make the protection domain a first-class kernel abstraction.
 \cite{provos2003preventing, barth2008security}
 
-Microkernels such as Fiasco-OC and seL4 have pursued the more holisitc concept of \textbf{object capability systems}:
+Microkernels such as Fiasco-OC and seL4 have pursued the more holistic concept of \textbf{object capability systems}:
 capabilities are unforgeable tokens that represent the right to access (invoke) a resource (system call).
 Starting from a root process with capabilities to all system resources, new processes must be constructed with an explicit list of access capabilities, encompassing address space, file system access rights, system call gates.
 Like lwCs, the level of (static) privilege only decreases along the capability creation chain, but we believe that the requirement to explicitly list all requirements of a new process facilitates audits of the system architecture, compared to the default CoW sharing between lwCs parent and child.
@@ -623,7 +623,7 @@ Wedge avoids the forking semantics of \lstinline{lwcCreate}, following a "defaul
 Notably, memory is not a resource in the lwC sense, but handled though \textit{tags}: all memory allocations are associated with a tag per compartment.
 Permissions to access data on the compartment-private heap is thus also expressed through tags being passed between \textit{sthreads}.
 Wedge requires modification of all memory allocations in a program if sources are available or the use of linker-based compatibility modes for binary-only libraries.
-Light-weight context appear to be less invase with regards to program modification and do not treat memory differently from\todo{preposition} other resources.
+Light-weight context appear to be less invasive with regards to program modification and do not treat memory differently from\todo{preposition} other resources.
 \cite{bittau2008wedge}
 
 The \textbf{Shreds} system combines a variant of Control-Flow Integrity and ARM Memory Domains to implement private memory and hijacking protection for small code blocks.
@@ -677,7 +677,7 @@ The light-weight context design is appealing on first glance due to
   \item its relatively small implementation footprint in terms of code size and locality as well as
   \item the original paper's evaluation results (section~\ref{eval}), demonstrating applicability in real-world applications, promising either performance gains or moderate losses in exchange for convincing security benefits.
 \end{itemize}
-However, we believe that the evaluation does not provide a substantiated argument for the practicalit of light-weight contexts.
+However, we believe that the evaluation does not provide a substantiated argument for the practicality of light-weight contexts.
 
 First, the \lstinline{lwcSwitch} micro-benchmark does not account for the indirect costs of address-space switching, specifically, the additional TLB pressure.
 These effects have been well-known for decades, e.g., in micro-kernel research  nd implementation. \cite{liedtke1997achievedipcperformance} 
@@ -689,7 +689,7 @@ In particular, the scalability experiment results are almost worthless for web-a
 
 Third, the web-server benchmarks are not representative because they actually contain very few lwC and address space switches:
 the clients only ever request a single 45B or 900B document from a RAM disk, which is to high certainty available in the buffer cache.
-Thus, any file-system I/O performed by Apapche or nginx is not going to block.
+Thus, any file-system I/O performed by Apache or nginx is not going to block.
 Further, both the HTTP requests and responses for those documents fit within a single TCP frame transferred over a low-latency dedicated ethernet link.
 Therefore, socket I/O is also not likely to block if the evaluation setup is not network-bandwidth bound (see below).
 Given the low probability of blocking, we suspect that \textit{both} the nginx and Apache benchmarks only perform the following lwC and scheduling-related operations:
@@ -697,7 +697,7 @@ Given the low probability of blocking, we suspect that \textit{both} the nginx a
 \item For a new connection, create the lwC once and switch to it,
 \item\label{crit:enum:tx} handle requests on that connection until the TCP tx buffer is full (no context switching)
 \item if nginx (non-blocking I/O): switch out of lwC, when returning, goto \ref{crit:enum:tx},
-\item if apache (blocking I/O): block, OS context-switches to another thread in other lwC, wakeup, goto \ref{crit:enum:tx},
+\item if Apache (blocking I/O): block, OS context-switches to another thread in other lwC, wakeup, goto \ref{crit:enum:tx},
 \item leave lwC and destroy it.
 \end{enumerate}
 Our own experiments\ref{appendix:httppayloads} show 1146B response payloads for 900B requests and 284B response payloads for 40B requests.
@@ -710,10 +710,10 @@ With a peak throughput of $\sim95k$ req/sec for 900B and 180k req/sec for 40B, o
 % [GET/S] * [ETH_FRAME_SIZE]
 % (95000 * 1212byte ) in giga bit
 % (180000 * 350 byte ) in giga bit
-To exclude\todo{ausschließen} flow or congestion control issues, we recommend repeating the experiment with a 10 Gbit/s link.
+To exclude\todo{ausschliessen} flow or congestion control issues, we recommend repeating the experiment with a 10 Gbit/s link.
 
 Fifth, the evaluation is performed on a machine with a tagged TLB --- untagged TLB systems are not measured.
-Given the envisioned use-case for lwCs is in server applications running in data centers, and the dominance of Intel in the server market, and the availibility of tagged TLBs on Intel CPUs since 2010\todo{cite wikipedia link},
+Given the envisioned use-case for lwCs is in server applications running in data centers, and the dominance of Intel in the server market, and the availability of tagged TLBs on Intel CPUs since 2010\todo{cite wikipedia link},
 requiring tagged TLBs for performance might be acceptable.
 However, such a requirement should be made explicit and justified through appropriate benchmarks.
 
@@ -722,7 +722,7 @@ since lwCs encourage the creation of many address spaces and rapid switching bet
 For example, the Intel system used for the evaluation\todo{should give detailed hardware info in eval section} uses 12-bit wide TLB tags.
 This allows for at most $2^{12}=4096$ concurrent lwCs per CPU core before TLB tags need to be time-multiplexed on a single core or space-multiplexed between different cores.
 Time-multiplexing necessarily implies TLB shootdowns and thus indirect performance overheads.
-Space-multiplexing requires tighter integration into the scheduler and necessarily comes with tradeoffs in work-conservation, fairness, etc.
+Space-multiplexing requires tighter integration into the scheduler and necessarily comes with trade-offs in work-conservation, fairness, etc.
 The \textit{mechanism} for TLB tag exhaustion must be addressed by the virtual memory (VM) system.
 But the lwC design likely breaks implicit assumptions of the VM system designers with regards to frequency of AS creation and switching.
 Thus, the authors should provide an appropriate multiplexing and scheduling \textit{policy} and measure its effects in application-level benchmarks, also addressing fairness in multi-tenant systems (multi-user, jails, containers).
@@ -741,8 +741,8 @@ The authors' evaluation has shown that, with regards to throughput, light-weight
 Further, the application-level benchmarks demonstrate that non-invasive usage of lwCs in web application stacks is also possible:
 each client request can be be handled in an isolated address space, protecting client sessions from each other as well as the server's TLS private key.
 
-However, we have found the the performance benchmarks for the modified applications to be incomplete and unprepresentative of real-world work loads.
-In particular, the availibility of a tagged TLB seems critical for performance, but neither the design nor the evaluation address the issue of TLB tag exhaustion.
+However, we have found the the performance benchmarks for the modified applications to be incomplete and unrepresentative of real-world work loads.
+In particular, the availability of a tagged TLB seems critical for performance, but neither the design nor the evaluation address the issue of TLB tag exhaustion.
 
 We are not convinced that the presented design of light-weight contexts is an appropriate general-purpose OS abstraction.
 Practical usefulness in the domain of web application hardening depends on the unreported latency implications of lwCs as well as real-world TLB miss behavior.
