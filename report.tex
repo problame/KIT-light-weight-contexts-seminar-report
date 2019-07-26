@@ -1,10 +1,10 @@
-\documentclass[10pt,twocolumn,a4]{article}
+\documentclass[10pt,twocolumn,a4paper]{article}
 \usepackage{styles/usenix-style}
 \usepackage{styles/ka-style}
 \usepackage{xspace,ifthen,graphicx,listings}
 \usepackage{styles/ka-style}
 
-\usepackage[utf8]{inputenc}
+% \usepackage[utf8]{inputenc}
 \usepackage[inline]{enumitem}
 \usepackage{parskip} % disable indentation for new paragraphs, increased margin-bottom instead
 \usepackage[english]{babel}
@@ -219,7 +219,7 @@ When invoking the system call, the kernel
 \item atomically switches to the new protection domain by installing the target lwC address space, file descriptor table and credential for the current thread,
 \item and restores the control flow state saved for the current in thread in the target lwC.
 \end{enumerate}
-Pseudo code for this procedure is provided in listing~\ref{design:fig:switchpseudocode}.
+Pseudo code for this procedure is provided in figure~\ref{design:fig:switchpseudocode}.
 \cite{lwckernelrepo,lwcpaper}
 
 \begin{figure}[b]
@@ -582,7 +582,7 @@ For longer syscalls (large \lstinline{read}, \lstinline{write}), syscall interpo
 The first application benchmark uses light-weight contexts within the PHP-FPM FastCGI server to reduce interpreter and application initialization time, using a technique called \textit{snapshot-and-rollback}:
 on first startup, before handling any request-specific data, the PHP script creates a snapshot of its initialized state using \lstinline{lwcCreate}.
 This snapshot is then used as the basis for handling subsequent requests in a separate isolated lwCs which start execution at the pre-initialized state of the original snapshot.
-Pseudocode for this operation is provided in figure~\ref{eval:phpfpm:pseudocode}.
+Pseudo code for this operation is provided in figure~\ref{eval:phpfpm:pseudocode}.
 \cite{lwcpaper}
 
 \begin{figure}
@@ -590,7 +590,7 @@ Pseudocode for this operation is provided in figure~\ref{eval:phpfpm:pseudocode}
   % \includegraphics[height=6.5cm]{fig/dummy_snapshot_rollback_code}
   \missingfigure[figheight=6.5cm]{}
   \caption{Pseudo-Code for Snapshot\& Rollback as used for the PHP-FPM benchmark.}
-  \label{label=eval:phpfpm:pseudocode}
+  \label{eval:phpfpm:pseudocode}
 \end{figure}
 
 The authors adapt a Zend-Framework web application template to use snapshot-and-rollback and compare the \textbf{throughput} of against upstream PHP-FPM with the unmodified app, both with and without PHP opcode cache:
@@ -605,7 +605,7 @@ Nginx implements an event-loop using non-blocking I/O with a single worker threa
 an lwC is created per connection and the descriptor is tracked in a hash map index by the socket file descriptor.
 When the kernel notifies the worker thread about pending I/O on a socket, the worker looks up the corresponding lwC and switches to it before resuming regular nginx request handling.
 When the kernel reports that socket I/O would block, the worker switches back to the main event loop to handle other pending I/O.\todo{pending I/O comprehensible?}
-Pseudocode for both Apache and nginx modifications is provided in figure~\ref{eval:web:pseudocode}.
+Pseudo code for both Apache and nginx modifications is provided in figure~\ref{eval:web:pseudocode}.
 \cite{lwcpaper}
 
 \begin{figure*}
@@ -614,16 +614,16 @@ Pseudocode for both Apache and nginx modifications is provided in figure~\ref{ev
   {\textbf{Apache} uses thread-based concurrency: the handler thread switches to a new lwC once and performs blocking I/O within the lwC. lwcSwitch is only invoked at the start and end of the connection.}
   [0.4\linewidth]
   {
-    \missingfigure[figheight=9cm]{Apache lwC Pseudo-Code / Diff / Visualization}
+    \missingfigure[figheight=9cm]{Apache lwC Pseudo Code / Diff / Visualization}
   }
   \hspace{1cm}
   \subcaptionbox
   {\textbf{Nginx} uses an event loop. The lwC descriptor for each active connection is stored in a hash map. Before resuming work on a connection, the event loop worker looks up the corresponding lwC in the hash map and switches to it.}
   [0.4\linewidth]
   {
-    \missingfigure[figheight=7cm]{nginx lwC Pseudo-Code / Diff / Visualization}
+    \missingfigure[figheight=7cm]{nginx lwC Pseudo Code / Diff / Visualization}
   }
-  \caption{Session-Isolation in the Apache and nginx web servers.}
+  \caption{Session-Isolation in the Apache and nginx web servers.\label{eval:web:pseudocode}}
 \end{figure*}
 
 The first set of benchmarks measures \textit{throughput} of GET requests for a \textit{single 45 byte document} at a constant number of concurrent clients.
@@ -802,7 +802,7 @@ requiring tagged TLBs for performance might be acceptable.
 However, such a requirement should be made explicit and justified through appropriate benchmarks.\cite{intelmarketshare}
 
 Sixth, the evaluation does not address the issue of TLB-tag exhaustion:
-since lwCs encourage the creation of many address spaces and rapid switching between them (see section~\ref{eval:apps}), a system might have fewer TLB tags available than active lwCs.
+since lwCs encourage the creation of many address spaces and rapid switching between them (see section~\ref{eval:web:pseudocode}), a system might have fewer TLB tags available than active lwCs.
 For example, the Intel system used for the evaluation\todo{should give detailed hardware info in eval section} uses 12-bit wide TLB tags.
 This allows for at most $2^{12}=4096$ concurrent lwCs per CPU core before TLB tags need to be time-multiplexed on a single core or space-multiplexed between different cores.
 Time-multiplexing necessarily implies TLB shootdowns and thus indirect performance overheads.
