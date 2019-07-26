@@ -87,7 +87,7 @@ We conclude with a critique of the design \& evaluation, pointing out substantia
 %each with a private \textit{address space}, \textit{file descriptor table} and the system \textit{credential} and private per-thread logical control-flow %state (section~\ref{design:createdestroy}).
 %Switching between the domains and single-value argument passing is controlled by the kernel (section~\ref{design:switching}).
 %Dynamic sharing of resources between lwCs is also kernel-controlled using access capabilities (section~\ref{design:overlays}).
-%Access to global namespaces \& system resources (IP sockets, filesystem, IPC) is limited by the lwC's \textit{credential} and can be further controlled %through syscall interposition (section~\ref{design:syscallinterpos}).
+%Access to global namespaces \& system resources (IP sockets, file system, IPC) is limited by the lwC's \textit{credential} and can be further controlled %through syscall interposition (section~\ref{design:syscallinterpos}).
 %
 %Kernel-controlled switching between lwCs results in \textbf{well-defined entry points} under the assumption of an lwC created using \lstinline{COPY} resource %specifier\todo{this is quite coarse, AS and FDT sufficient?}:
 %the first \lstinline{lwcSwitch} diverts physical control flow to the \lstinline{lwcCreate} call site in the new lwC, and all subsequent \lstinline{lwcSwitch}%es resume execution at an lwcSwitch all site.
@@ -113,14 +113,17 @@ Can the operating system provide an efficient abstraction to maintain some of th
 Light-weight contexts (lwCs) are such an OS-based solution that allows for multiple protection domains (\textit{contexts}) within the same process:
 An lwC is comprised of an address space, file descriptor table and system credential (privilege level).
 In contrast to the implicit execution environment provided by a process, lwCs are a first-class OS abstraction and explicitly tangible from user space as file descriptors.
+\cite{lwcpaper}
 
 In the proposed design, threads no longer execute a single logical control flow, but have one \textit{per lwC}.
 A new system call allows for rapid voluntary switching to a different lwC: apart from resuming the thread's target lwC logical control flow, the system call also installs the target lwC's address space, file descriptor table and system credential for the current thread.
 Argument passing on switch then enables the decomposition of an application's functionality into multiple lwCs that can provide independent security guarantees.
+\cite{lwcpaper}
 
 Light-weight contexts can be created as snapshots of the current lwCs address space layout, file descriptors and privilege level.
 Dynamic sharing of these resources is also supported through a capability system built on top of lwC file descriptors.
 Privilege escalation through out-of-process channels can be prevented using syscall interposition, which enables efficient program-defined policy enforcement for syscalls made by an lwC.
+\cite{lwcpaper}
 
 The authors provide an evaluation of their implementation in FreeBSD 11.0, focusing on the enhancement of inter-request isolation and TLS private key protection in web servers.
 The presented results are impressive at first glance, but we are going to show that the evaluation lacks key metrics for the presented use cases and does not sufficiently investigate obvious performance-constraints of the design.
@@ -195,6 +198,7 @@ The authors introduce light-weight contexts as a new OS abstraction and restruct
 \item lwCs are represented as file descriptors, and thus explicitly tangible from user space.
 \item Threads can switch protection domains and logical control flow by switching between lwCs.
 \end{itemize}
+\cite{lwcpaper,lwckernelrepo}
 
 In the following subsections, we provide an outline of the system API for managing and using lwCs in an application.
 
@@ -216,6 +220,7 @@ When invoking the system call, the kernel
 \item and restores the control flow state saved for the current in thread in the target lwC.
 \end{enumerate}
 Pseudo code for this procedure is provided in listing~\ref{design:fig:switchpseudocode}.
+\cite{lwckernelrepo,lwcpaper}
 
 \begin{figure}[b]
   \begin{lstlisting}[basicstyle=\footnotesize\ttfamily,mathescape,frame=single,linewidth=0.9\linewidth,belowskip=0pt,aboveskip=0pt,xleftmargin=0.05\linewidth]
@@ -239,19 +244,21 @@ However, in contrast to the canonical model of processes \& threads, \textbf{\ls
 from the scheduler's perspective, it is still the same scheduling entity (formerly thread) that is executing on the CPU.
 Regular context saving and restoration after interrupts, exceptions or when a thread blocks, is left unchanged.
 Only the memory location for off-cpu control flow state changes from the thread's control block to the thread's slot in the current lwC.
+\cite{lwckernelrepo}
 
 The second argument to \lstinline{lwcSwitch} is an opaque value called \lstinline{arg} which is passed through to the code that starts executing in the target lwC after the switch is completed.
 \lstinline{arg} is made available in the target lwC as the return value \lstinline{carg} (we remember that execution always resumes at an lwC call site).
 The second return value \lstinline{caller} is the file descriptor of the lwC from where the switch was initiated.
+\cite{lwcpaper}
 
 Note that these three properties of \lstinline{lwcSwitch} (kernel-moderated control flow switching, address space switching, and argument passing) enable the construction of lwCs that fulfill a server-like role within an application, providing independent security properties:
 as will be discussed in section~\ref{design:usage}, one lwC can provide some high-assurance service to other lwCs because it has a private address space and can enforce specific entry-points (\lstinline{lwcSwitch} call sites) where argument validation can be performed.
 
 
-
 \subsection{lwC Creation \& Destruction}\label{design:createdestroy}
 A process in an lwC system starts with a single thread that runs within a root lwC created by the OS.
 This design enables backwards binary-compatibility with the exception that the root lwC file descriptor is a well-known number analogous to those for stdio.
+\cite{lwcpaper}
 
 New lwCs can be created from any thread with the \lstinline{lwcCreate} system call.
 By default, a new lwC is a snapshot of the calling thread's current lwC, as depicted in figure~\ref{design:fig:lwccreationsequencediagram}:
@@ -259,6 +266,7 @@ The kernel first creates copies of the resources \textit{address space}, \textit
 It then temporarily preempts all threads that execute in the current lwC and stores their control flow state in the new lwC.
 The execution state of other threads that can switch to the creating lwCs is copied to the new lwC.
 Finally, the file descriptor referring to the new lwC is returned to user space in the return value \lstinline{new}.
+\cite{lwcpaper}
 
 \begin{figure}
   \centering
@@ -273,7 +281,7 @@ Finally, the file descriptor referring to the new lwC is returned to user space 
 
 Note that in contrast to the original paper, we avoid the term \textit{fork} when describing the lwC creation procedure:
 forking has the same resource snapshotting semantics as \textit{lwcCreate}, but also implies the creation of a new process and scheduling entity.
-In contrast, \textit{lwcCreate} only creates a copy of the protection domain and a handle for existing threads to switch to it later --- no independent scheduling entity is created.
+\textit{lwcCreate} only creates a copy of the protection domain and a handle for existing threads to switch to it later --- no independent scheduling entity is created.
 
 However, one problem of forking translates to lwC creation:
 what happens when we first switch into a newly created lwC? How does snapshotting interact with multi-threading?
@@ -286,6 +294,7 @@ The second case covers other threads, which could be at random points in their l
 Switching to such threads results in undefined behavior --- we refer to introductory literature about multi-threading and forking for details.
 The authors recommend usage of barrier-synchronization to established well-defined initial entrypoints for all threads in the new lwC.
 However, it is unclear to us how the \lstinline{caller} and \lstinline{carg} return values are accessible without inline-assembly or language support for non-creator threads.
+\cite{lwcpaper}
 
 Note that a new lwC only stores control flow states for the threads that existed at the time of its creation:
 threads created after the lwC cannot switch into the lwC.
@@ -321,6 +330,7 @@ By default, a new lwC is a snapshot copy of the current lwC's resources \textit{
 callers can specify per resource-kind whether the resource shall be \textit{copied to}, \textit{unmapped from} or \textit{shared} with the new lwC.
 Address space and file descriptor sharing can be be specified on a per-page or per-descriptor basis.
 Figure~\ref{design:fig:rspectable} summarizes the different combinations of resources and sharing behavior.
+\cite{lwcpaper}
 
 \begin{figure*}[h]
 \begin{lstlisting}[xleftmargin=0.4\linewidth]
@@ -356,6 +366,7 @@ The target address, or file descriptor number, respectively, is guaranteed to be
 To unmap an existing overlay, \lstinline{src} must be set to the current lwC and \lstinline{rspecs} must be filled with \lstinline{UNMAP} resource specifiers. 
 Overlays do not support stacking: after unmapping an overlay that overlaid an existing memory mapping, that original memory mapping is not automatically remapped.  %vmspace_lwc_merge
 System credential overlays enable temporary privilege escalation to the credential of the \lstinline{src} lwC.
+\cite{lwcpaper}
 
 Overlays are subject to an \textbf{access capability system}:
 the lwC descriptor kernel representation (\lstinline{struct filedescent}) carries an rspec-like mask that represents permitted overlays.
@@ -369,20 +380,22 @@ The rules for modifying the permitted-overlay mask are as follows:
         after a successful \lstinline{lwcRestrict}, the resource ranges specified in \lstinline{rspecs} can no longer be overlaid using \lstinline{lwcOverlay(target, ...)}.
   \item Access capabilities are invariant across overlays: to the file descriptor entry in the kernel, and is therefore invariant across overlays.
 \end{itemize}
-
 Note that revocation of existing overlays is not possible, i.e., \lstinline{lwcRestrict} only affects future overlays.
+\cite{lwckernelrepo,lwcpaper}
 
 \subsection{Syscall Interposition}\label{design:syscallinterpos}
 % kernel: lwctrapto in sys/kern/subr_syscall.c basically just calls lwcswitch 
-It can be desirable to limit the system calls an lwC may perform, e.g., to limit filesystem access to a subdirectory, prohibit network communication, or avoid privilege escalation through other system calls.  
+It can be desirable to limit the system calls an lwC may perform, e.g., to limit file system access to a subdirectory, prohibit network communication, or avoid privilege escalation through other system calls.  
 The lwC design builds onto existing syscall filtering and mechanisms, e.g. Capsicum capability mode on FreeBSD or seccomp on Linux\todo{cite}:
 when an lwC is created with the \lstinline{LWC_TRAP_SYSCALL} flag, system calls made by the new lwC or any of its children that would normally trap due to the syscall filtering mechanism are redirected to the creator as an \lstinline{lwcSwitch}.
 The \lstinline{caller} return value of \lstinline{lwcSwitch} is set to the trapping lwC and \lstinline{cargs} contains the syscall arguments for inspection by the trap-handling lwC.
+\cite{lwcpaper}
 
 The trap-handling lwC can use the \lstinline{lwcSyscall} syscall execute a system call \textbf{in the context of the trapping lwC}:
 the \lstinline{mask} argument allows the trap-handling lwC to choose per resource type\footnote{granularity: all memory, all file descriptors, the credential} whether its own resource mapping or that of the trapping lwC should be used while the syscall is executed.
 It is further possible to make \lstinline{lwcSyscall} return to the trapping lwC on completion of the syscall.
 Both options are optimizations that avoid temporary overlays and additional context switches.
+\cite{lwcpaper,lwckernelrepo}
 
 \begin{lstlisting}[style=syscallinline]
   lwcSyscall(trappingLwc, mask,
@@ -395,15 +408,18 @@ The authors' solution is classification of signals as either \textit{attributabl
 attributable signals such as for segmentation faults are always delivered to the thread in the lwC that caused the signal to occur.
 Non-attributable signals are delivered to \textit{all} lwCs created with a corresponding flag.
 Consequently, each thread must have a separate signal mask per lwC.\todo{verify in src}
+\cite{lwcpaper}
 
 \subsection{Forking \& Exit}
 A forked process inherits the parent's lwCs.
 However, only the forking thread exists in the child process, presumably due to POSIX compliance\cite{forkmultithread}. %read do_fork, which calls copy_snaps
 Shared memory established through \lstinline{lwcCreate}, \lstinline{lwcOverlay}, or \lstinline{mmap(..., MAP_SHARED)}, stays shared across forks.
 The authors do not specify the behavior for file descriptor tables and credential; we assume unmodified fork semantics per lwC.
+\cite{lwcpaper}
 
 The exit system call terminates the entire process, regardless of the lwC in which it was called.
 Syscall interposition can be used to avoid this specific problem, but process-wide denial of service from within a compromised lwC cannot be fully avoided (see section~\ref{security}).
+\cite{lwcpaper}
 
 \subsection{API Summary}
 
@@ -445,6 +461,7 @@ any user space processes able to influence the execution of the lwC-process,
 and any user space code that runs before \lstinline{main} starts executing.
 Once \lstinline{main} starts executing, we assume an attacker who is able to hijack control flow and execute arbitrary code in user-mode in the currently established execution context, i.e., the current lwC.
 Specifically, an attacker may access any mapped memory through unprivileged instructions and invoke any system call, including lwC management calls, and attempt privilege escalation directly or indirectly by invoking said system calls.
+\cite{lwcpaper}
 
 \textbf{Resource Mappings}\hspace{1em}
 An lwC consists of resource mappings for the three resource kinds \textit{address space}, \textit{file descriptor table} and \textit{system credential}.
@@ -468,18 +485,20 @@ For example, full confidentiality and integrity of a region of memory in the roo
 As mentioned in the previous subsection, purely static resource sharing guarantees monotonically decreasing access rights along the lwC creation chain ---
 application developers must only verify that no unintended implicit sharing occurs.
 Dynamic resource sharing should be used carefully because the dynamic flow of access rights can only and must be verified by the application developer.
+\cite{lwcpaper}
 
 Availability cannot be guaranteed by lwCs:
 an attacker in control of an lwC can invoke the \lstinline{exit} system call to terminate the process unless syscall interposition is used to prevent that syscall.
 An attacker may also modify the code in a compromised lwC to block indefinitely or never invoke \lstinline{lwcSwitch}, effectively trapping all threads that switch to the compromised lwC.
-The authors dismiss both problems by describing denial-of-service (DoS) within a process as "self-defeating".\todo{quote}
+The authors dismiss both problems by describing denial-of-service (DoS) within a process as "self-defeating".
 We remark that the original paper does not address per-lwC resource usage (limits), which could serve as another DoS vector. 
+\cite{lwcpaper}
 
 
 \subsection{Example Use Case: Application Compartmentalization}\label{design:usage}
 
 Application developers can leverage lwCs to achieve application protection goals.
-We restrict ourselves to an example use case for lwCs of a fictional application called \newcommand\appname{\textit{convert.io}\xspace} \appname.
+We restrict ourselves to an example use case for lwCs of a fictional application called \newcommand\appname{\textit{cnvrt}\xspace} \appname.
 We are going to use lwCs for \textit{compartmentalization} to increase confidentiality of user data and the server's TLS private key. 
 \appname is a network service which
 \begin{enumerate}[nosep]
@@ -500,11 +519,11 @@ A successful attacker has no longer access to the private key and is limited to 
 A visualization of the compartmentalized design is given in figure~\ref{design:usage:apparchpost}.
 
 \begin{figure}
-  \label{design:usage:apparchpost}
   \centering
   \missingfigure[figheight=5cm]{Visualize \appname control flow, similar to the one in the seminar presentation bonus slides.}
   \caption{
     The compartmentalized \appname application uses a separate lwC for the initial TLS handshake to protect the private key and per-request lwCs to isolate concurrent requests from each other.
+    \label{design:usage:apparchpost}
   }
 \end{figure}
 
@@ -529,22 +548,25 @@ The major changes to the kernel consist of:
 \end{itemize}
 
 User-space support for lwCs is provided by a C~library containing syscall wrappers and a synchronized hash-table that enables key-value sharing across lwCs.
-The authors also provide a PHP extension that makes the lwC API accessible from scripts, which is required for the evaluation.~\cite{lwclibsrepo}
+The authors also provide a PHP extension that makes the lwC API accessible from scripts, which is required for the evaluation.
 
 \section{Evaluation}\label{eval}
 The authors evaluate their implementation using micro-benchmarks to determine the primitive operations' latency
 and integrate light-weight contexts into production applications, demonstrating its applicability and real-world performance impact.
 The benchmarking setup consists of two machines with dual Intel Xeon X5650 2.66GHz six-core CPUs with disabled hyperthreading and dynamic frequency scaling.
 The machines are connected by a 1Gbit Ethernet switch.
+\cite{lwcpaper}
 
 \subsection{Micro-Benchmarks}
 The micro-benchmarks show a 2x speedup for \lstinline{lwcSwitch} latency compared to regular context switching induced by a kernel semaphore.
 Regular context switching is a valid micro-benchmark baseline because it would be necessary for process-based privilege separation.
+\cite{lwcpaper}
 
 The latency of lwC creation and destruction is only explored cumulatively: creating and immediately destroying a single lwC takes $87.7\mu s \approx 233282$ cycles on the evaluation machine. %(87.7*10^-6) * 2.66*10^9 = 233282
 However, the authors do not provide a meaningful baseline, e.g., the latency of a forking and immediately exiting in the child.
 An extended version of this micro-benchmark is also used to argue that the direct run-time overhead \textit{within} an lwC is limited to CoW faults.
 However, the indirect cost of multiple address spaces (e.g. increased TLB pressure) is neither considered nor evaluated.
+\cite{lwcpaper}
 
 The syscall interposition feature is evaluated by example:
 the authors implement a reference monitor that intercepts the \lstinline{open}, \lstinline{read} and \lstinline{write} system calls, execute a dummy application that performs a fixed number of those system calls, and measure total execution time.
@@ -554,12 +576,14 @@ Expectably, inlined policy checks exhibit the lowest overhead in all cases.
 Capsicum and syscall interposition are penalized\todo{language} by the required context in the case of short syscalls like \lstinline{open}, small \lstinline{read} and \lstinline{write}.
 For longer syscalls (large \lstinline{read}, \lstinline{write}), syscall interposition benefits from the \lstinline{mask} argument because --- unlike Capsicum --- copying the buffer to the reference monitor is not necessary.
 \todo{figure helpful?}
+\cite{lwcpaper}
 
 \subsection{PHP-FPM}
 The first application benchmark uses light-weight contexts within the PHP-FPM FastCGI server to reduce interpreter and application initialization time, using a technique called \textit{snapshot-and-rollback}:
 on first startup, before handling any request-specific data, the PHP script creates a snapshot of its initialized state using \lstinline{lwcCreate}.
 This snapshot is then used as the basis for handling subsequent requests in a separate isolated lwCs which start execution at the pre-initialized state of the original snapshot.
 Pseudocode for this operation is provided in figure~\ref{eval:phpfpm:pseudocode}.
+\cite{lwcpaper}
 
 \begin{figure}
   \centering
@@ -571,7 +595,7 @@ Pseudocode for this operation is provided in figure~\ref{eval:phpfpm:pseudocode}
 
 The authors adapt a Zend-Framework web application template to use snapshot-and-rollback and compare the \textbf{throughput} of against upstream PHP-FPM with the unmodified app, both with and without PHP opcode cache:
 snapshot-and-reload achieves \textbf{2.7x (1.3x) throughput} with disabled (enabled) opcode cache.
-Notably, this performance gain also comes with the security benefit of handling each request in a separate address space.\cite{zend}
+Notably, this performance gain also comes with the security benefit of handling each request in a separate address space.\cite{zend,lwcpaper}
 
 \subsection{Session Isolation in Web Servers}\label{eval:web}
 The authors also integrate lwCs into the popular \textbf{Apache} and \textbf{nginx} web servers to protect TLS private keys and per-session data from attackers (\textit{session isolation}).
@@ -582,6 +606,7 @@ an lwC is created per connection and the descriptor is tracked in a hash map ind
 When the kernel notifies the worker thread about pending I/O on a socket, the worker looks up the corresponding lwC and switches to it before resuming regular nginx request handling.
 When the kernel reports that socket I/O would block, the worker switches back to the main event loop to handle other pending I/O.\todo{pending I/O comprehensible?}
 Pseudocode for both Apache and nginx modifications is provided in figure~\ref{eval:web:pseudocode}.
+\cite{lwcpaper}
 
 \begin{figure*}
   \centering
@@ -608,20 +633,23 @@ For Apache, the lwC modifications exhibit significantly worse throughput for sho
 For nginx, performance implications are much less severe, with at most 22\% lower throughput for four-request sessions and $\sim 6\%$ lower throughput at 16-request sessions.
 Our interpretation of the throughput improvements for Apache with growing session length is that the one-time additional latency for lwC creation and destruction is amortized for longer sessions, as can bee observed at 256 reqs/session.
 However, this theory does not explain why nginx throughput is less affected, because nginx also creates an lwC per connection.
+\cite{lwcpaper}
 
 The authors also conduct a \textit{scalability} experiment for nginx:
-at a fixed session length of 256 requests, for 45 byte and 900 byte documents, the total throughput is measured for different numbers \todo{counts?} of concurrent clients.
+at a fixed session length of 256 requests, for 45 byte and 900 byte documents, the total throughput is measured for different counts of concurrent clients.
 For up to 6500 concurrent clients, there is no significant difference between upstream nginx and lwC nginx.
 For the 45 byte experiment, higher concurrency correlates with higher standard deviation and at most 19\% lower mean throughput.
 900 byte requests degrade more gracefully, with up to 10\% lower mean throughput at \~19500 concurrent clients.
 The authors explain the sudden drop in performance at 6500 clients with CPU-bound behavior of an interrupt handler thread, but do not provide details on the network hardware or driver which likely caused this problem.
-It is conceivable that the additional CPU time required by lwcSwitch causes the steeper drop in throughput for lwC-nginx.\todo{explain?}
+It is conceivable that the additional CPU time required by lwcSwitch causes the steeper drop in throughput for lwC-nginx.\todo{need explain?}
+\cite{lwcpaper}
 
 Apart from session isolation, the authors also modify the OpenSSL library to isolate the TLS private key used for HTTPS in a dedicated lwC.
 This refactoring analogous to our example in section~\ref{design:usage} is possible because the private key is only required for TLS session establishment to negotiate the symmetric session key.
 The authors claim that the OpenSSL modifications were be made such that they are \textbf{not visible to the application code} consuming the library.
 \footnote{The OpenSSL modifications were made in an intermediate build stage of the FreeBSD port system.}
 The evaluation in nginx shows \textbf{only 0.6\% lower throughput} for 10000 TLS handshakes with 24 concurrent clients compared to upstream OpenSSL.
+\cite{lwcpaper}
 
 \section{Related Work}\label{rel}
 The evaluation demonstrates two use-cases for light-weight contexts: \textit{application compartmentalization} and process \textit{snapshot-and-rollback}.
@@ -652,7 +680,7 @@ Light-weight contexts allow native code execution without interpreter or verifie
 \cite{haas2017bringingwebassembly, lwnebpf}.
 
 \textbf{Operating system} designers have long pursued privilege separation and compartmentalization models:
-even very basic established techniques like virtual memory, multi user systems, file-system permissions and \lstinline{chroot} enable effective process-based privilege separation, e.g., in the OpenSSH server and the Chromium web browser.
+even very basic established techniques like virtual memory, multi user systems, file system permissions and \lstinline{chroot} enable effective process-based privilege separation, e.g., in the OpenSSH server and the Chromium web browser.
 Whereas these approaches creatively re-combine existing kernel subsystems to achieve isolated address spaces or different privileges, light-weight contexts make the protection domain a first-class kernel abstraction.
 \cite{provos2003preventing, barth2008security}
 
@@ -664,7 +692,7 @@ Like lwCs, the level of (static) privilege only decreases along the capability c
 
 \textbf{FreeBSD Capsicum} is a technology described as "practical capabilities for UNIX":
 after entering \textit{capability mode}, a process is limited to file-descriptor-relative system calls (\lstinline{openat} instead of \lstinline{open}), and inter-process communication through already open sockets and IPC handles.
-Access to any kind of global namespace (filesystem, inet- and unix sockets, \dots) is prohibited, which gives file descriptors the role of capabilities.
+Access to any kind of global namespace (file system, inet- and unix sockets, \dots) is prohibited, which gives file descriptors the role of capabilities.
 Compartmentalization is achieved by decomposing an application into multiple processes in capability mode and connecting them through pipes.
 This technique enables private address spaces, file descriptor tables and system credential per logical application component and limits communication to well-defined entry-points via IPC.
 Arbitrary policy checks on system calls require proxying the call through a separate processes, which introduces latency and CPU overhead avoided by lwC system call interposition.
@@ -744,7 +772,7 @@ In particular, the scalability experiment results are almost worthless for web-a
 
 Third, the web-server benchmarks are not representative because they actually contain very few lwC and address space switches:
 the clients only ever request a single 45B or 900B document from a RAM disk, which is to high certainty available in the buffer cache.
-Thus, any file-system\todo{consistent hyphens} I/O performed by Apache or nginx is not going to block.
+Thus, any file system\todo{consistent hyphens} I/O performed by Apache or nginx is not going to block.
 Further, both the HTTP requests and responses for those documents fit within a single TCP frame transferred over a low-latency dedicated ethernet link.
 Therefore, socket I/O is also not likely to block if the evaluation setup is not network-bandwidth bound (see below).
 Given the low probability of blocking, we suspect that \textit{both} the nginx and Apache benchmarks only perform the following lwC and scheduling-related operations:
