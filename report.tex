@@ -74,7 +74,7 @@
 Report by Christian Schwarz\\%
 {\small Hot Topics in Modern Operating Systems}\\%
 {\small ITEC, Karlsruhe Institute of Technology}\\%
-{\small May -- August 2019}\\%
+{\small Submitted August 21, 2019}\\%
 \vspace{1em}
 }
 \date{2019}
@@ -373,7 +373,7 @@ To unmap an existing overlay, \lstinline{src} must be set to the current lwC and
 System credential overlays enable temporary privilege escalation to the credential of the \lstinline{src} lwC.
 \cite{lwcpaper}
 
-Overlays are subject to a \textbf{access capability system}:
+Overlays are subject to an \textbf{access capability system}:
 the lwC descriptor kernel representation (\lstinline{struct filedescent}) carries an rspec-like mask that represents permitted overlays.
 \lstinline{lwcOverlay} checks that the requested overlay \lstinline{rspec} is a subset of the permitted-overlay mask.
 The \lstinline{lwcRestrict(target, rspecs)} system call allows reduction (but not addition) of overlay permissions:
@@ -560,7 +560,7 @@ After request handling is complete, the script switches to that snapshot and is 
 \cite{lwcpaper}
 
 The authors adapt a Zend framework web application template to use snapshot-and-rollback and compare the request throughput against upstream PHP-FPM with the unmodified app, both with and without PHP opcode cache:
-snapshot-and-reload achieves \textbf{2.7x (1.3x) throughput} with disabled (enabled) opcode cache.
+snapshot-and-reload achieves 2.7x (1.3x) throughput with disabled (enabled) opcode cache.
 Notably, this performance gain also comes with the security benefit of handling each request in a separate address space.\cite{zend,lwcpaper}
 
 \subsection{Session Isolation in Web Servers}\label{eval:web}
