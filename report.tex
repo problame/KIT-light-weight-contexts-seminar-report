@@ -88,8 +88,7 @@ Light-weight contexts (lwCs) provide an OS abstraction for privilege separation 
 an lwC is comprised of an address space, file descriptor table and system credential, as well as one logical control flow per thread.
 By allowing threads to rapidly switch between lwCs, pass arguments, and selectively share resources, compartmentalizing requests or code modules becomes possible.\\
 In this report, we summarize the original lwC design and provide a brief analysis of its security model.
-We proceed with a discussion of the authors' implementation and evaluation of lwCs on FreeBSD 11.0, pointing out substantial flaws and open questions with regards to real-world performance.
-We conclude with a survey of related work in the field of application compartmentalization.
+We conclude with a discussion of the authors' implementation and evaluation of lwCs on FreeBSD 11.0, pointing out substantial flaws and open questions with regards to real-world performance.
 \end{abstract}
 
 \section{Introduction}\label{intro}
@@ -189,7 +188,7 @@ Finally, we survey other approaches to application compartmentalization in Secti
 \section{Design}\label{design}
 
 
-We find it most helpful to develop the general idea of light-weight contexts by starting from the canonical abstraction of processes \& threads, as visualized in Figure~\ref{design:fig:canonicalprocthreads}:
+We find it most helpful to develop the general idea of light-weight contexts by starting from the canonical abstraction of processes and threads, as visualized in Figure~\ref{design:fig:canonicalprocthreads}:
 Conventionally, processes define an execution environment which is shared by one or more threads.
 The execution environment consists of an address space, a file descriptor table and a representation of the process's system-wide privileges (\textit{credential}).
 Threads have two roles within a process:
@@ -202,7 +201,7 @@ The scheduler state required for this task is stored in the TCB.
 
 The authors introduce lwCs as a new OS abstraction and restructure the roles of canonical processes and threads, as visualized in Figure~\ref{design:fig:lwcprocthreadrelationship}:
 \begin{itemize}
-\item An lwC represents a single protection domain (address space, file descriptor table and system-wide privilege) and all logical control flows within that protection domain.
+\item An lwC represents a single protection domain (address space, file descriptor table and system-wide privileges) and all logical control flows within that protection domain.
 \item Threads always execute within one lwC at any given time and always execute the same logical control flow while within that lwC.
 \item Multiple threads can execute simultaneously within an lwCs, sharing a protection domain but executing different logical flows.
 \item lwCs are represented as file descriptors, and thus explicitly tangible from user space.
@@ -392,16 +391,15 @@ when an lwC is created with the \lstinline{LWC_TRAP_SYSCALL} flag, system calls 
 The \lstinline{caller} return value of \lstinline{lwcSwitch} is set to the trapping lwC and \lstinline{cargs} contains the syscall arguments for inspection by the trap-handling lwC.
 \cite{lwcpaper}
 
-The trap-handling lwC can use the \lstinline{lwcSyscall} syscall execute a system call \textbf{in the context of the trapping lwC}:
-the \lstinline{mask} argument allows the trap-handling lwC to choose per resource type whether its own resource mapping or that of the trapping lwC should be used while the syscall is executed.
+The trap-handling lwC can use the \lstinline{lwcSyscall} syscall execute a system call in the context of the trapping lwC:
+\begin{lstlisting}[style=syscallinline,float=h]
+  lwcSyscall(trappingLwc, mask,
+             syscall, syscall-args)
+\end{lstlisting}\\
+The \lstinline{mask} argument allows the trap-handling lwC to choose per resource type whether its own resource mapping or that of the trapping lwC should be used while the syscall is executed.
 It is further possible to make \lstinline{lwcSyscall} return to the trapping lwC on completion of the syscall.
 Both options are optimizations that avoid temporary overlays and additional context switches.
 \cite{lwcpaper,lwckernelrepo}
-
-\begin{lstlisting}[style=syscallinline]
-  lwcSyscall(trappingLwc, mask,
-             syscall, syscall-args)
-\end{lstlisting}
 
 \subsection{Signal Delivery}
 UNIX signal delivery with lwCs faces similar design questions as signal delivery in multi-threaded applications: To which lwCs should a given signal be delivered?
@@ -457,7 +455,7 @@ Applications must create lwCs with correct resource mappings and access capabili
 For example, full confidentiality and integrity of a region of memory in the root lwC can be achieved by asserting that all child lwCs are created with a resource specifier that marks that respective memory region as \lstinline{UNMAP}ped.
 \enquote{Loop holes} such as attaching a debugger to the parent lwC from the child lwC must also be addressed, e.g., through system call interposition or by dropping privileges in the child lwC.
 
-We believe that unintended is a highly-probable risky programming error due to the default copy-on-write sharing on lwC creation.
+We believe that unintended sharing is a highly-probable risky programming error due to the default copy-on-write sharing on lwC creation.
 Unintended access right propagation or information flow through overlays at runtime might be even more difficult to spot in code reviews or audits.
 Therefore, the authors recommend to use overlays \enquote{carefully} \cite{lwcpaper}.
 
@@ -561,12 +559,12 @@ before handling a request, the PHP script uses \lstinline{lwcCreate} to create a
 After request handling is complete, the script switches to that snapshot and is ready to serve the next request without repeating the request-independent initialization work.
 \cite{lwcpaper}
 
-The authors adapt a Zend framework web application template to use snapshot-and-rollback and compare the request \textbf{throughput} against upstream PHP-FPM with the unmodified app, both with and without PHP opcode cache:
+The authors adapt a Zend framework web application template to use snapshot-and-rollback and compare the request throughput against upstream PHP-FPM with the unmodified app, both with and without PHP opcode cache:
 snapshot-and-reload achieves \textbf{2.7x (1.3x) throughput} with disabled (enabled) opcode cache.
 Notably, this performance gain also comes with the security benefit of handling each request in a separate address space.\cite{zend,lwcpaper}
 
 \subsection{Session Isolation in Web Servers}\label{eval:web}
-The authors also integrate lwCs into the popular \textbf{Apache} and \textbf{nginx} web servers to protect TLS private keys and per-session data from attackers (\textit{session isolation}).
+The authors also integrate lwCs into the popular Apache and nginx web servers to protect TLS private keys and per-session data from attackers (\textit{session isolation}).
 The Apache variant extends the Apache pre-fork concurrency mode, which uses dedicated threads per active client connection:
 before a thread starts handling a new connection, it creates an lwC with private address space and file descriptor table and switches into it, thereby isolating potential attackers to a single thread in a dedicated lwC.
 Nginx implements an event-loop using non-blocking I/O with a single worker thread per core:
@@ -594,7 +592,7 @@ When the kernel reports that socket I/O would block, the worker switches back to
 %   \caption{Session-Isolation in the Apache and nginx web servers.\label{eval:web:pseudocode}}
 % \end{figure*}
 
-The first set of benchmarks measures \textit{throughput} of GET requests for a \textit{single $\SI{45}{\byte}$ document} at 128 concurrent clients.
+The first set of benchmarks measures throughput of GET requests for a single $\SI{45}{\byte}$ document from 128 concurrent clients.
 The authors perform the experiment for different \textit{session lengths}, i.e., the number of requests sent over a single connection using HTTP keep-alive.
 For Apache, the lwC modifications exhibit significantly worse throughput for short sessions than stock pre-fork mode ($\ge80\%$ lower throughput).
 16-request sessions, which we consider generous for highly interactive web applications, still exhibit $\sim 16\%$ lower throughput.
@@ -614,9 +612,9 @@ However, it remains unclear to us why lwC nginx experiences a steeper drop than 
 
 The authors also modify the OpenSSL library to isolate the TLS private key used for HTTPS in a dedicated lwC.
 This refactoring is possible because the private key is only required for TLS session establishment to negotiate the symmetric session key.
-The authors claim that the OpenSSL modifications were be made such that they are \textbf{not visible to the application code} consuming the library.
+The authors claim that the OpenSSL modifications were be made such that they are not visible to the application code consuming the library.
 %\footnote{The OpenSSL modifications were made in an intermediate build stage of the FreeBSD port system.}
-The evaluation in nginx shows \textbf{only 0.6\% lower throughput} for 10000 TLS handshakes with 24 concurrent clients compared to upstream OpenSSL.
+The evaluation in nginx shows only 0.6\% lower throughput for 10000 TLS handshakes with 24 concurrent clients compared to upstream OpenSSL.
 \cite{lwcpaper}
 
 \section{Critique}\label{eval:crit}
@@ -636,7 +634,7 @@ Second, we are dissatisfied with the chosen web-server benchmark metrics:
 the authors only measure throughput and not latency, which is of equal or even higher importance for web applications.
 In particular, the scalability experiment results are almost worthless for web-app use cases without a comparison of latency distributions.
 
-Third, \textbf{the web-server benchmarks are not representative because they actually contain very few lwC and address space switches}:
+Third, the web-server benchmarks are not representative because they actually contain very few lwC and address space switches:
 the clients only ever request a single 45B or 900B document from a RAM disk, which is to high certainty available in the buffer cache.
 Thus, any file system I/O performed by Apache or nginx is not going to block.
 Further, both the HTTP requests and responses for those documents fit within a single TCP frame transferred over a low-latency dedicated Ethernet link.
@@ -653,7 +651,7 @@ Given the low probability of blocking, we suspect that \textit{both} the nginx a
 Our own experiments (Appendix~\ref{appendix:httppayloads}) show $\SI{1146}{\byte}$ ($\SI{284}{\byte}$) TCP response payloads for $\SI{900}{\byte}$ ($\SI{40}{\byte}$) requests.
 Thus, 28 (115) responses fit into the standard initial $\SI{32}{\kibi\byte}$ tx buffer of a default FreeBSD TCP socket~\cite{fbsd11tcpsendspace}.
 Assuming non-blocking reads for all request payloads\footnote{Requests are very short and likely pipelined.}, this implies that that session lengths of up to 28 (115) requests per session can be handled without any intermediate context switching.
-In reality though, both file and socket I/O are going to block, dramatically increasing the number of lwC switches compared to the presented application benchmarks.
+In a realistic setup, both file and socket I/O are going to block, dramatically increasing the number of lwC switches compared to the presented application benchmarks.
 
 Fourth, we believe that the nginx scalability benchmark was operating close to the maximum network bandwidth of 1Gbit/s, which might have needlessly disrupted or distorted the measurements:
 With a peak throughput of 95k\,req/sec for $\SI{900}{\byte}$ and 180k\,req/sec for $\SI{40}{\byte}$ documents, our experiments show 0.92\,(0.5)\,Gbit/s response Ethernet traffic (Appendix~\ref{appendix:httppayloads}).
@@ -728,7 +726,7 @@ Capsicum allows reusing established IPC mechanisms and compatible libraries for 
 
 The \textbf{Wedge} system implements Linux kernel support for creating \textit{sthreads}, which behave similarly to lwCs with regards to static resource sharing.
 Wedge avoids the forking semantics of \lstinline{lwcCreate}, following a \enquote{default-deny model} where all resources to be shared with a child must be explicitly listed.
-Memory is not a resource in the lwC sense, but handled though \textit{tags}: all memory allocations are associated with a tag, and a compartment must be in possession of a tag to access the tagged memory.
+Memory is not a resource in the lwC sense, but handled through \textit{tags}: all memory allocations are associated with a tag, and a compartment must be in possession of a tag to access the tagged memory.
 Wedge requires modification of all memory allocations in a program if sources are available, or the use of linker-based compatibility modes for binary-only libraries.
 LwCs are less invasive with regards to program modification and do not treat memory differently from other resources.
 \cite{bittau2008wedge}
