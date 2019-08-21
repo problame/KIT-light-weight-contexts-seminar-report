@@ -160,7 +160,7 @@ Finally, we survey other approaches to application compartmentalization in Secti
   % \hfill
   \subcaptionbox{
       \textbf{Canonical model}\hspace{1em}
-      The process impicitly defines the execution environment for threads.
+      The process implicitly defines the execution environment for threads.
       Threads are scheduling entities that represent a single control flow bound to the process-defined environment.
     \label{design:fig:canonicalprocthreads}
   }
@@ -253,7 +253,7 @@ This behavior is analogous to a voluntary context switch, e.g., with \lstinline{
 However, in contrast to the canonical model of processes and threads, \textbf{\lstinline{lwcSwitch} does not switch to another scheduling entity}:
 from the scheduler's perspective, it is still the same scheduling entity that is executing on the CPU.
 Regular context saving and restoration after interrupts, exceptions or when a thread blocks, is left unchanged.
-Only the memory location for off-cpu control flow state changes from the thread's control block to the thread's slot in the current lwC.
+Only the memory location for off-CPU control flow state changes from the thread's control block to the thread's slot in the current lwC.
 \cite{lwckernelrepo}
 
 The second argument to \lstinline{lwcSwitch} is the opaque value \lstinline{arg} which is passed through to the code that starts executing in the target lwC after the switch.
@@ -288,7 +288,7 @@ Finally, the file descriptor referring to the new lwC is returned to user space 
 \label{design:fig:lwccreationsequencediagram}
 \end{figure}
 
-Although this procedure resemmbles the \lstinline{fork} system call, it is crucial to understand that no new process or scheduling entity is created.
+Although this procedure resembles the \lstinline{fork} system call, it is crucial to understand that no new process or scheduling entity is created.
 \lstinline{lwcCreate} merely snapshots the current protection domain and provides a handle for existing threads to resume execution at that snapshot through \lstinline{lwcSwitch}.
 
 Still, one problem of forking translates to lwC creation:
@@ -332,7 +332,7 @@ threads created after the lwC cannot switch into the lwC.
 \subsubsection{lwC Resource Specifiers}\label{design:rspecs}
 The previous section presented the default behavior of \lstinline{lwcCreate} for an empty \lstinline{rspecs} argument.
 By default, a new lwC is a snapshot copy of the current lwC's resources \textit{address space}, \textit{file descriptor table} and \textit{credential}.
-However, it can also be desirable to share memory areas with the new lwC for bulk data tranfer, or to unmap memory from the new lwC to keep data secret.
+However, it can also be desirable to share memory areas with the new lwC for bulk data transfer, or to unmap memory from the new lwC to keep data secret.
 
 \textit{Resource specifiers} provide fine-grained control of the resource sharing on \lstinline{lwcCreate}:
 callers can specify per resource-kind whether the resource shall be \textit{copied to}, \textit{unmapped from} or \textit{shared} with the new lwC.
@@ -408,7 +408,7 @@ UNIX signal delivery with lwCs faces similar design questions as signal delivery
 The authors' solution is classification of signals as either \textit{attributable} or \textit{non-attributable}:
 attributable signals such as for segmentation faults are always delivered to the thread in the lwC that caused the signal to occur.
 Non-attributable signals are delivered to \textit{all} lwCs created with a corresponding flag.
-If a thread executes in a different lwC, signal delivery is deferred until that thread switches to the signalled lwC.
+If a thread executes in a different lwC, signal delivery is deferred until that thread switches to the signaled lwC.
 \cite{lwcpaper}
 %We assume that above delivery model requires separate signal masks per lwC and thread.
 
@@ -532,7 +532,7 @@ The authors also provide a PHP extension that makes parts of the lwC API accessi
 \section{Evaluation}\label{eval}
 The authors evaluate their implementation using micro-benchmarks to determine the primitive operations' latency
 and integrate lwCs into production applications, demonstrating its applicability and real-world performance impact.
-The benchmarking setup consists of two machines with dual Intel Xeon X5650 2.66GHz six-core CPUs with disabled hyperthreading and dynamic frequency scaling.
+The benchmarking setup consists of two machines with dual Intel Xeon X5650 2.66GHz six-core CPUs with disabled SMT and dynamic frequency scaling.
 The machines are connected by a 1Gbit Ethernet switch.
 \cite{lwcpaper}
 
@@ -639,7 +639,7 @@ In particular, the scalability experiment results are almost worthless for web-a
 Third, \textbf{the web-server benchmarks are not representative because they actually contain very few lwC and address space switches}:
 the clients only ever request a single 45B or 900B document from a RAM disk, which is to high certainty available in the buffer cache.
 Thus, any file system I/O performed by Apache or nginx is not going to block.
-Further, both the HTTP requests and responses for those documents fit within a single TCP frame transferred over a low-latency dedicated ethernet link.
+Further, both the HTTP requests and responses for those documents fit within a single TCP frame transferred over a low-latency dedicated Ethernet link.
 Therefore, socket I/O is also not likely to block if the evaluation setup is not network-bandwidth bound (see below).
 Given the low probability of blocking, we suspect that \textit{both} the nginx and Apache benchmarks only perform the following lwC and scheduling-related operations:
 \begin{enumerate}[nosep]
@@ -695,7 +695,7 @@ This principle also applies within an application: it should be possible that di
 Memory safe languages systematically eliminate the need for memory isolation and unintended remote code execution, and runtime systems with access control systems eliminate the need for syscall filtering.
 Java and its \lstinline{SecurityManager} are an example for such an approach.
 The downside of language-specific solutions is the limitation to a single source language and potential overhead associated with runtime checks in software as opposed to the MMU.
-Further, the trusted computing base (TCB) extens to the language runtime implementation which, in the case of Java, had countless vulnerabilities and sandbox escapes over its lifetime.
+Further, the trusted computing base (TCB) extends to the language runtime implementation which, in the case of Java, had countless vulnerabilities and sandbox escapes over its lifetime.
 LwCs are language- and runtime-system-independent and have a significantly smaller TCB.
 \cite{javasecurity,bartel2018twentyyearsjavasecuritysandboxescape}
 
@@ -721,7 +721,7 @@ after entering \textit{capability mode}, a process is limited to file-descriptor
 This puts file descriptors the role of capabilities.
 By decomposing an application into multiple processes in capability mode and connecting them through pipes, application components can have private address spaces, file descriptor tables and system credential.
 Arbitrary policy checks on system calls require proxying the call through a separate processes, which introduces latency and CPU overhead avoided by lwC system call interposition.
-Capsisum allows reusing established IPC mechanisms and compatible libraries for communication between components, whereas \lstinline{lwcSwitch} APIs require custom communication abstractions.
+Capsicum allows reusing established IPC mechanisms and compatible libraries for communication between components, whereas \lstinline{lwcSwitch} APIs require custom communication abstractions.
 \cite{watson2010capsicum}
 
 %The CHERI project implements a capability model in hardware...
